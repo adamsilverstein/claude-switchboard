@@ -22,6 +22,8 @@ func run(args []string) error {
 	switch args[0] {
 	case "list":
 		return runList(args[1:])
+	case "where":
+		return runWhere(args[1:])
 	case "help", "-h", "--help":
 		usage()
 		return nil
@@ -36,6 +38,9 @@ func usage() {
 
 Commands:
   list [--all] [--summary]   print the live agents as a table
-  help           show this help
+  where <agent>              print the window an agent is running in
+  help                       show this help
+
+<agent> matches on name, PID, or session id; a unique substring is enough.
 `)
 }
