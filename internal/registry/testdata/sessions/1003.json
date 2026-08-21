@@ -1,0 +1,16 @@
+{
+  "pid": 1003,
+  "sessionId": "bbbb1111-2222-3333-4444-555566667777",
+  "cwd": "/Users/example/repositories/inside-tmux",
+  "startedAt": 1787328100000,
+  "procStart": "Fri Aug 21 15:10:00 2026",
+  "version": "2.1.238",
+  "kind": "interactive",
+  "entrypoint": "cli",
+  "tmux": "claude-e96b2a6e:@2.%2",
+  "messagingSocketPath": "/tmp/cc-socks/1003.sock",
+  "name": "tmux-hosted agent",
+  "status": "busy",
+  "statusUpdatedAt": 1787328200000,
+  "updatedAt": 1787328200000
+}
