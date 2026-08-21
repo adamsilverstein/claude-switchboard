@@ -57,3 +57,22 @@ type Location struct {
 	Reason    string    // why not focusable, when Focusable is false
 	Commands  []Command // the steps Focus runs, in order
 }
+
+// Focus runs a location's commands in order. The iTerm focus script reports
+// "not found" on stdout rather than failing when the session has vanished
+// between enumeration and focus, so that output is checked too.
+func Focus(r Runner, loc Location) error {
+	if !loc.Focusable {
+		return fmt.Errorf("cannot focus: %s", loc.Reason)
+	}
+	for _, c := range loc.Commands {
+		out, err := r.Run(c.Name, c.Args...)
+		if err != nil {
+			return fmt.Errorf("%s: %w", c.String(), err)
+		}
+		if strings.TrimSpace(out) == "not found" {
+			return fmt.Errorf("window disappeared before it could be focused")
+		}
+	}
+	return nil
+}

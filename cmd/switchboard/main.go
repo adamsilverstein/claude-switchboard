@@ -24,6 +24,8 @@ func run(args []string) error {
 		return runList(args[1:])
 	case "where":
 		return runWhere(args[1:])
+	case "focus":
+		return runFocus(args[1:])
 	case "help", "-h", "--help":
 		usage()
 		return nil
@@ -39,6 +41,7 @@ func usage() {
 Commands:
   list [--all] [--summary]   print the live agents as a table
   where <agent>              print the window an agent is running in
+  focus <agent> [--dry-run]  jump focus to an agent's window
   help                       show this help
 
 <agent> matches on name, PID, or session id; a unique substring is enough.

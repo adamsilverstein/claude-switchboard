@@ -180,3 +180,39 @@ func TestCommandStringQuotesSpaces(t *testing.T) {
 		t.Errorf("String = %q", got)
 	}
 }
+
+func TestFocusRunsCommandsInOrder(t *testing.T) {
+	r := &fakeRunner{}
+	loc := Location{
+		Focusable: true,
+		Commands: []Command{
+			{Name: "osascript", Args: []string{"-e", "x", "uuid"}},
+			{Name: "tmux", Args: []string{"select-window", "-t", "s:@1"}},
+		},
+	}
+	if err := Focus(r, loc); err != nil {
+		t.Fatalf("Focus: %v", err)
+	}
+	if len(r.calls) != 2 || !strings.HasPrefix(r.calls[0], "osascript") || !strings.HasPrefix(r.calls[1], "tmux") {
+		t.Errorf("calls = %v", r.calls)
+	}
+}
+
+func TestFocusRefusesUnfocusable(t *testing.T) {
+	r := &fakeRunner{}
+	err := Focus(r, Location{Reason: "no controlling terminal"})
+	if err == nil || !strings.Contains(err.Error(), "no controlling terminal") {
+		t.Errorf("err = %v", err)
+	}
+	if len(r.calls) != 0 {
+		t.Errorf("no commands should run, got %v", r.calls)
+	}
+}
+
+func TestFocusDetectsVanishedSession(t *testing.T) {
+	r := &fakeRunner{iterm: "not found\n"}
+	loc := Location{Focusable: true, Commands: []Command{{Name: "osascript", Args: []string{"-e", "x"}}}}
+	if err := Focus(r, loc); err == nil {
+		t.Error("expected an error when the focus script reports not found")
+	}
+}
