@@ -1,0 +1,10 @@
+# Binaries
+/switchboard
+/dist/
+
+# Go workspace
+go.work
+go.work.sum
+
+# Editor
+.DS_Store
