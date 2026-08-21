@@ -8,6 +8,7 @@ import (
 	"text/tabwriter"
 	"time"
 
+	"github.com/adamsilverstein/claude-switchboard/internal/activity"
 	"github.com/adamsilverstein/claude-switchboard/internal/locate"
 	"github.com/adamsilverstein/claude-switchboard/internal/registry"
 )
@@ -41,6 +42,7 @@ func scanAgents() ([]registry.Agent, error) {
 func runList(args []string) error {
 	fs := flag.NewFlagSet("list", flag.ContinueOnError)
 	all := fs.Bool("all", false, "include dead registry entries")
+	summary := fs.Bool("summary", false, "include a one-line summary from each agent's transcript")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -48,9 +50,19 @@ func runList(args []string) error {
 	if err != nil {
 		return err
 	}
+	var projectsDir string
+	if *summary {
+		if projectsDir, err = activity.DefaultProjectsDir(); err != nil {
+			return err
+		}
+	}
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
-	fmt.Fprintln(w, "PID\tSTATUS\tAGE\tDIR\tNAME")
+	header := "PID\tSTATUS\tAGE\tDIR\tNAME"
+	if *summary {
+		header += "\tSUMMARY"
+	}
+	fmt.Fprintln(w, header)
 	now := time.Now()
 	for _, a := range agents {
 		if !a.Live && !*all {
@@ -63,8 +75,17 @@ func runList(args []string) error {
 		if !a.Live {
 			status = "dead"
 		}
-		fmt.Fprintf(w, "%d\t%s\t%s\t%s\t%s\n",
-			a.PID, status, formatAge(now, statusTime(a)), shortDir(a.Cwd), a.Name)
+		age := statusTime(a)
+		row := ""
+		if *summary {
+			act := activity.For(projectsDir, a.Cwd, a.SessionID)
+			if age.IsZero() {
+				age = act.Modified
+			}
+			row = "\t" + truncate(act.Summary, 80)
+		}
+		fmt.Fprintf(w, "%d\t%s\t%s\t%s\t%s%s\n",
+			a.PID, status, formatAge(now, age), shortDir(a.Cwd), a.Name, row)
 	}
 	return w.Flush()
 }
@@ -78,6 +99,17 @@ func statusTime(a registry.Agent) time.Time {
 		return a.UpdatedAt
 	}
 	return a.StartedAt
+}
+
+func truncate(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	r := []rune(s)
+	if len(r) <= n {
+		return s
+	}
+	return string(r[:n-1]) + "…"
 }
 
 func formatAge(now, t time.Time) string {

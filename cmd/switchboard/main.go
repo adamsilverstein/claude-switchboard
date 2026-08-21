@@ -35,7 +35,7 @@ func usage() {
 	fmt.Fprint(os.Stderr, `usage: switchboard <command>
 
 Commands:
-  list [--all]   print the live agents as a table
+  list [--all] [--summary]   print the live agents as a table
   help           show this help
 `)
 }
