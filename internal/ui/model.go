@@ -29,6 +29,10 @@ type Source func() ([]Row, error)
 // description of where it went. Injected so tests never steal focus.
 type Focuser func(a registry.Agent) (string, error)
 
+// Stopper terminates an agent's process. Injected so tests never kill
+// anything.
+type Stopper func(a registry.Agent) error
+
 type sortKey int
 
 const (
@@ -55,6 +59,7 @@ func (k sortKey) String() string {
 type Model struct {
 	source  Source
 	focuser Focuser
+	stopper Stopper
 
 	rows     []Row
 	err      error
@@ -62,15 +67,16 @@ type Model struct {
 	filter   string
 	typing   bool // filter input active
 	sort     sortKey
-	cursor   int // index into visible()
+	cursor   int             // index into visible()
+	stopping *registry.Agent // agent awaiting stop confirmation
 	width    int
 	height   int
 	quitting bool
 }
 
 // New builds the picker model.
-func New(source Source, focuser Focuser) Model {
-	return Model{source: source, focuser: focuser, width: 100, height: 24}
+func New(source Source, focuser Focuser, stopper Stopper) Model {
+	return Model{source: source, focuser: focuser, stopper: stopper, width: 100, height: 24}
 }
 
 type rowsMsg struct {
@@ -80,6 +86,11 @@ type rowsMsg struct {
 
 type focusMsg struct {
 	desc string
+	err  error
+}
+
+type stopMsg struct {
+	name string
 	err  error
 }
 
@@ -122,6 +133,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case stopMsg:
+		if msg.err != nil {
+			m.notice = "stop failed: " + msg.err.Error()
+		} else {
+			m.notice = "sent SIGTERM to " + msg.name
+		}
+		return m, nil
+
 	case tea.KeyMsg:
 		return m.handleKey(msg)
 	}
@@ -154,6 +173,18 @@ func (m Model) applyRows(msg rowsMsg) Model {
 
 func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	m.notice = ""
+	if m.stopping != nil {
+		agent := *m.stopping
+		m.stopping = nil
+		if msg.String() == "y" {
+			st := m.stopper
+			return m, func() tea.Msg {
+				return stopMsg{name: agent.Name, err: st(agent)}
+			}
+		}
+		m.notice = "stop cancelled"
+		return m, nil
+	}
 	if m.typing {
 		switch msg.Type {
 		case tea.KeyEsc:
@@ -209,6 +240,18 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "d":
 		m.sort = sortDir
+		return m, nil
+	case "ctrl+x":
+		rows := m.visible()
+		if m.cursor >= len(rows) {
+			return m, nil
+		}
+		agent := rows[m.cursor].Agent
+		if !agent.Live {
+			m.notice = "agent is already gone"
+			return m, nil
+		}
+		m.stopping = &agent
 		return m, nil
 	case "enter":
 		rows := m.visible()

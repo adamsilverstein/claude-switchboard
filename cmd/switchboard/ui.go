@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"syscall"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -42,7 +43,11 @@ func runUI() error {
 		return loc.Desc, nil
 	}
 
-	_, err = tea.NewProgram(ui.New(source, focuser), tea.WithAltScreen()).Run()
+	stopper := func(a registry.Agent) error {
+		return syscall.Kill(a.PID, syscall.SIGTERM)
+	}
+
+	_, err = tea.NewProgram(ui.New(source, focuser, stopper), tea.WithAltScreen()).Run()
 	if err != nil {
 		return fmt.Errorf("ui: %w", err)
 	}

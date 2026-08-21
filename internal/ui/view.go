@@ -85,9 +85,12 @@ func (m Model) View() string {
 		b.WriteString(deadStyle.Render("  no agents match") + "\n")
 	}
 
-	footer := "enter focus  / filter  s/a/n/d sort  q quit"
+	footer := "enter focus  / filter  s/a/n/d sort  ctrl+x stop  q quit"
 	if m.notice != "" {
 		footer = m.notice
+	}
+	if m.stopping != nil {
+		footer = noticeStyle.Render(fmt.Sprintf("stop %q (SIGTERM pid %d)? y/N", m.stopping.Name, m.stopping.PID))
 	}
 	b.WriteString(footerStyle.Render(footer))
 	return b.String()

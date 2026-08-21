@@ -24,7 +24,12 @@ func testRows() []Row {
 
 func loaded(t *testing.T, focuser Focuser) Model {
 	t.Helper()
-	m := New(func() ([]Row, error) { return testRows(), nil }, focuser)
+	return loadedWithStopper(t, focuser, nil)
+}
+
+func loadedWithStopper(t *testing.T, focuser Focuser, stopper Stopper) Model {
+	t.Helper()
+	m := New(func() ([]Row, error) { return testRows(), nil }, focuser, stopper)
 	next, _ := m.Update(rowsMsg{rows: testRows()})
 	return next.(Model)
 }
@@ -44,6 +49,8 @@ func press(t *testing.T, m Model, key string) (Model, tea.Cmd) {
 		msg = tea.KeyMsg{Type: tea.KeyUp}
 	case "down":
 		msg = tea.KeyMsg{Type: tea.KeyDown}
+	case "ctrl+x":
+		msg = tea.KeyMsg{Type: tea.KeyCtrlX}
 	default:
 		msg = tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(key)}
 	}
@@ -211,5 +218,60 @@ func TestQuit(t *testing.T) {
 	}
 	if m.View() != "" {
 		t.Error("quitting view should be empty")
+	}
+}
+
+func TestStopRequiresConfirmation(t *testing.T) {
+	var stopped int
+	m := loadedWithStopper(t, nil, func(a registry.Agent) error {
+		stopped = a.PID
+		return nil
+	})
+	m, cmd := press(t, m, "ctrl+x")
+	if cmd != nil {
+		t.Fatal("ctrl+x alone must not stop anything")
+	}
+	if !strings.Contains(m.View(), "y/N") {
+		t.Error("view should ask for confirmation")
+	}
+	m, cmd = press(t, m, "y")
+	if cmd == nil {
+		t.Fatal("y should confirm the stop")
+	}
+	msg := cmd()
+	if stopped != 1 {
+		t.Errorf("stopped PID = %d, want 1 (first row in status order)", stopped)
+	}
+	next, _ := m.Update(msg)
+	m = next.(Model)
+	if !strings.Contains(m.View(), "sent SIGTERM") {
+		t.Error("view should report the stop")
+	}
+}
+
+func TestStopCancelledByAnyOtherKey(t *testing.T) {
+	m := loadedWithStopper(t, nil, func(a registry.Agent) error {
+		t.Fatal("stopper must not be called after cancel")
+		return nil
+	})
+	m, _ = press(t, m, "ctrl+x")
+	m, cmd := press(t, m, "n")
+	if cmd != nil {
+		t.Fatal("cancel must not produce a command")
+	}
+	if !strings.Contains(m.View(), "stop cancelled") {
+		t.Error("view should show the cancellation")
+	}
+}
+
+func TestStopDeadAgentRefused(t *testing.T) {
+	m := loadedWithStopper(t, nil, func(a registry.Agent) error {
+		t.Fatal("stopper must not be called for a dead agent")
+		return nil
+	})
+	m, _ = press(t, m, "G")
+	m, _ = press(t, m, "ctrl+x")
+	if !strings.Contains(m.View(), "already gone") {
+		t.Error("view should say the agent is already gone")
 	}
 }
