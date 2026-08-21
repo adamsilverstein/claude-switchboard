@@ -11,6 +11,7 @@ import (
 	"github.com/adamsilverstein/claude-switchboard/internal/activity"
 	"github.com/adamsilverstein/claude-switchboard/internal/locate"
 	"github.com/adamsilverstein/claude-switchboard/internal/registry"
+	"github.com/adamsilverstein/claude-switchboard/internal/ui"
 )
 
 // scanAgents reads the registry and marks liveness in one ps round trip.
@@ -85,7 +86,7 @@ func runList(args []string) error {
 			row = "\t" + truncate(act.Summary, 80)
 		}
 		fmt.Fprintf(w, "%d\t%s\t%s\t%s\t%s%s\n",
-			a.PID, status, formatAge(now, age), shortDir(a.Cwd), a.Name, row)
+			a.PID, status, ui.FormatAge(now, age), shortDir(a.Cwd), a.Name, row)
 	}
 	return w.Flush()
 }
@@ -110,23 +111,6 @@ func truncate(s string, n int) string {
 		return s
 	}
 	return string(r[:n-1]) + "…"
-}
-
-func formatAge(now, t time.Time) string {
-	if t.IsZero() {
-		return "?"
-	}
-	d := now.Sub(t)
-	switch {
-	case d < time.Minute:
-		return fmt.Sprintf("%ds", int(d.Seconds()))
-	case d < time.Hour:
-		return fmt.Sprintf("%dm", int(d.Minutes()))
-	case d < 24*time.Hour:
-		return fmt.Sprintf("%dh%02dm", int(d.Hours()), int(d.Minutes())%60)
-	default:
-		return fmt.Sprintf("%dd", int(d.Hours()/24))
-	}
 }
 
 func shortDir(dir string) string {

@@ -16,8 +16,7 @@ func main() {
 
 func run(args []string) error {
 	if len(args) == 0 {
-		usage()
-		return nil
+		return runUI()
 	}
 	switch args[0] {
 	case "list":
@@ -36,7 +35,9 @@ func run(args []string) error {
 }
 
 func usage() {
-	fmt.Fprint(os.Stderr, `usage: switchboard <command>
+	fmt.Fprint(os.Stderr, `usage: switchboard [command]
+
+With no command, opens the interactive picker.
 
 Commands:
   list [--all] [--summary]   print the live agents as a table
