@@ -201,7 +201,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 		case tea.KeyUp, tea.KeyDown:
 			return m.moveCursor(msg), nil
-		case tea.KeyRunes, tea.KeySpace:
+		case tea.KeySpace:
+			m.filter += " "
+		case tea.KeyRunes:
 			m.filter += string(msg.Runes)
 		}
 		m.clampCursor()
