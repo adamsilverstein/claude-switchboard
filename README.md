@@ -25,15 +25,67 @@ joins each one to the operating-system window it is sitting in.
 
 ## Install
 
+The repository is `claude-switchboard`; the command it installs is
+`switchboard`.
+
+### With `go install`
+
+Needs Go 1.27 or newer.
+
 ```sh
 go install github.com/adamsilverstein/claude-switchboard/cmd/switchboard@latest
 ```
 
-Or clone and `go build ./cmd/switchboard`.
+That writes the binary to `$(go env GOPATH)/bin`, which is `~/go/bin` unless
+you have changed it. **This directory is not on `PATH` by default**, so a
+fresh shell still answers `command not found: switchboard`. Add it once:
 
-Focusing windows requires macOS with iTerm2, and macOS will prompt once for
-permission to control iTerm2 via automation. Listing works anywhere the
-Claude Code registry exists.
+```sh
+echo 'export PATH="$PATH:$(go env GOPATH)/bin"' >> ~/.zshrc
+exec zsh
+```
+
+Use `~/.bashrc` instead if you run bash. After that, `switchboard` works from
+any directory.
+
+### From a clone
+
+```sh
+git clone https://github.com/adamsilverstein/claude-switchboard.git
+cd claude-switchboard
+go build ./cmd/switchboard
+```
+
+`go build` drops the binary in the current directory, so run it as
+`./switchboard` - a bare `switchboard` will not find it. To get the
+run-from-anywhere command instead, install it onto your `PATH`:
+
+```sh
+go install ./cmd/switchboard                # to $(go env GOPATH)/bin, as above
+go build -o /usr/local/bin/switchboard ./cmd/switchboard   # or any PATH dir
+```
+
+To try it without keeping a binary around at all:
+
+```sh
+go run ./cmd/switchboard list
+```
+
+### Check it works
+
+```sh
+switchboard list
+```
+
+prints one row per Claude Code session on this machine. An empty table means
+nothing is running right now - start a `claude` session in another window, or
+pass `--all` to include sessions that recently exited.
+
+Listing works anywhere the Claude Code registry (`~/.claude/sessions/`)
+exists. Focusing a window needs macOS with iTerm2, or tmux; the first time
+you press `enter` on a row, macOS asks for permission to control iTerm2.
+Allow it once - the answer is later editable under System Settings ->
+Privacy & Security -> Automation.
 
 ## Use
 
