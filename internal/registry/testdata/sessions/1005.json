@@ -1,0 +1,15 @@
+{
+  "pid": 1005,
+  "sessionId": "dddd1111-2222-3333-4444-555566667777",
+  "cwd": "/Users/example/repositories/reused",
+  "startedAt": 1787310000000,
+  "procStart": "Fri Aug 21 10:00:00 2026",
+  "version": "2.1.238",
+  "kind": "interactive",
+  "entrypoint": "cli",
+  "messagingSocketPath": "/tmp/cc-socks/1005.sock",
+  "name": "pid later reused by another process",
+  "status": "idle",
+  "statusUpdatedAt": 1787311000000,
+  "updatedAt": 1787311000000
+}

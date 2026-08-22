@@ -1,0 +1,42 @@
+version: 2
+
+project_name: switchboard
+
+builds:
+  - main: ./cmd/switchboard
+    binary: switchboard
+    env:
+      - CGO_ENABLED=0
+    # The tool reads a local registry and drives iTerm2/tmux, so macOS is
+    # the platform that matters; a Linux build costs nothing and lists
+    # agents even though it has no focus backend there yet.
+    goos:
+      - darwin
+      - linux
+    goarch:
+      - amd64
+      - arm64
+
+archives:
+  - formats: [tar.gz]
+    name_template: >-
+      {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
+
+checksum:
+  name_template: checksums.txt
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+
+brews:
+  - repository:
+      owner: adamsilverstein
+      name: homebrew-tap
+    homepage: https://github.com/adamsilverstein/claude-switchboard
+    description: Keyboard-driven picker for live Claude Code agents
+    # Publishing needs a homebrew-tap repository and a HOMEBREW_TAP_GITHUB_TOKEN
+    # secret; until then goreleaser skips this section with --skip=homebrew.

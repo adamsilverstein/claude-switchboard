@@ -1,0 +1,19 @@
+{
+  "pid": 1001,
+  "sessionId": "c856f920-9b07-471e-9c04-9bb813535ca3",
+  "cwd": "/Users/example/repositories/gutenberg",
+  "startedAt": 1787328733730,
+  "procStart": "Fri Aug 21 16:12:12 2026",
+  "version": "2.1.238",
+  "peerProtocol": 1,
+  "peerFeatures": ["notify_idle"],
+  "kind": "interactive",
+  "entrypoint": "cli",
+  "messagingSocketPath": "/tmp/cc-socks/1001.sock",
+  "name": "Fix media upload bug",
+  "nameSince": 1787328746324,
+  "status": "idle",
+  "updatedAt": 1787328957505,
+  "statusUpdatedAt": 1787328957505,
+  "bridgeSessionId": "session_01NEc71NqnUELFPLviF1kQ7o"
+}

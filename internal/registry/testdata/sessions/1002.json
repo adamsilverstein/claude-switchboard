@@ -1,0 +1,13 @@
+{
+  "pid": 1002,
+  "sessionId": "aaaa1111-2222-3333-4444-555566667777",
+  "cwd": "/Users/example/repositories/tool",
+  "startedAt": 1787328000000,
+  "procStart": "Fri Aug 21 15:00:00 2026",
+  "version": "2.1.238",
+  "kind": "interactive",
+  "entrypoint": "sdk-cli",
+  "messagingSocketPath": "/tmp/cc-socks/1002.sock",
+  "name": "sdk session without status",
+  "nameSince": 1787328000001
+}
