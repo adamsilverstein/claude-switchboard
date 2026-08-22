@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -194,7 +195,11 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.typing = false
 		case tea.KeyBackspace:
 			if len(m.filter) > 0 {
-				m.filter = m.filter[:len(m.filter)-1]
+				// Trim a whole rune, not a byte: the filter holds
+				// UTF-8 and a byte-level slice would corrupt a
+				// multi-byte final character.
+				_, size := utf8.DecodeLastRuneInString(m.filter)
+				m.filter = m.filter[:len(m.filter)-size]
 			}
 		case tea.KeyCtrlC:
 			m.quitting = true

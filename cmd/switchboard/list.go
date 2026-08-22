@@ -4,7 +4,6 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"strings"
 	"text/tabwriter"
 	"time"
 
@@ -83,10 +82,10 @@ func runList(args []string) error {
 			if age.IsZero() {
 				age = act.Modified
 			}
-			row = "\t" + truncate(act.Summary, 80)
+			row = "\t" + ui.Truncate(act.Summary, 80)
 		}
 		fmt.Fprintf(w, "%d\t%s\t%s\t%s\t%s%s\n",
-			a.PID, status, ui.FormatAge(now, age), shortDir(a.Cwd), a.Name, row)
+			a.PID, status, ui.FormatAge(now, age), ui.ShortDir(a.Cwd), a.Name, row)
 	}
 	return w.Flush()
 }
@@ -100,23 +99,4 @@ func statusTime(a registry.Agent) time.Time {
 		return a.UpdatedAt
 	}
 	return a.StartedAt
-}
-
-func truncate(s string, n int) string {
-	if len(s) <= n {
-		return s
-	}
-	r := []rune(s)
-	if len(r) <= n {
-		return s
-	}
-	return string(r[:n-1]) + "…"
-}
-
-func shortDir(dir string) string {
-	home, err := os.UserHomeDir()
-	if err == nil && strings.HasPrefix(dir, home) {
-		return "~" + strings.TrimPrefix(dir, home)
-	}
-	return dir
 }

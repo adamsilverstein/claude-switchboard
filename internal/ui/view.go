@@ -67,7 +67,7 @@ func (m Model) View() string {
 			status = "dead"
 		}
 		line := m.formatRowText(statusDot(r.Agent.Live, r.Agent.Status), status, FormatAge(now, r.Age),
-			r.Agent.Name, shortDir(r.Agent.Cwd), r.Summary, nameW, dirW, sumW)
+			r.Agent.Name, ShortDir(r.Agent.Cwd), r.Summary, nameW, dirW, sumW)
 		switch {
 		case i == m.cursor:
 			line = selectedStyle.Render(line)
@@ -130,17 +130,26 @@ func (m Model) formatRowText(dot, status, age, name, dir, summary string, nameW,
 
 // pad truncates or right-pads s to exactly w display runes.
 func pad(s string, w int) string {
-	r := []rune(s)
-	if len(r) > w {
-		if w <= 1 {
-			return string(r[:w])
-		}
-		return string(r[:w-1]) + "…"
+	if r := []rune(s); len(r) <= w {
+		return s + strings.Repeat(" ", w-len(r))
 	}
-	return s + strings.Repeat(" ", w-len(r))
+	return Truncate(s, w)
 }
 
-func shortDir(dir string) string {
+// Truncate caps s at w runes, marking the cut with an ellipsis.
+func Truncate(s string, w int) string {
+	r := []rune(s)
+	if len(r) <= w {
+		return s
+	}
+	if w <= 1 {
+		return string(r[:w])
+	}
+	return string(r[:w-1]) + "…"
+}
+
+// ShortDir abbreviates the user's home directory prefix to ~.
+func ShortDir(dir string) string {
 	if home, err := userHome(); err == nil && strings.HasPrefix(dir, home) {
 		return "~" + strings.TrimPrefix(dir, home)
 	}

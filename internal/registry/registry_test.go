@@ -119,3 +119,17 @@ func TestCheckLivenessFallsBackToPIDWhenProcStartMissing(t *testing.T) {
 		t.Error("agent with no matching PID should be dead")
 	}
 }
+
+func TestSameProcess(t *testing.T) {
+	start := time.Date(2026, time.August, 21, 16, 12, 12, 0, time.UTC)
+	a := Agent{PID: 1, ProcStart: start}
+	if !SameProcess(a, start.Add(time.Second)) {
+		t.Error("1s skew should still be the same process")
+	}
+	if SameProcess(a, start.Add(time.Minute)) {
+		t.Error("a minute of skew means the PID was reused")
+	}
+	if !SameProcess(Agent{PID: 1}, start) {
+		t.Error("missing ProcStart falls back to trusting the PID")
+	}
+}

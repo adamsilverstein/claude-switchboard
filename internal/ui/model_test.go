@@ -275,3 +275,15 @@ func TestStopDeadAgentRefused(t *testing.T) {
 		t.Error("view should say the agent is already gone")
 	}
 }
+
+func TestBackspaceRemovesWholeRune(t *testing.T) {
+	m := loaded(t, nil)
+	m, _ = press(t, m, "/")
+	for _, r := range "café" {
+		m, _ = press(t, m, string(r))
+	}
+	m, _ = press(t, m, "backspace")
+	if m.filter != "caf" {
+		t.Errorf("filter = %q, want %q (backspace must trim the whole multi-byte rune)", m.filter, "caf")
+	}
+}

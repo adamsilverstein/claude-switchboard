@@ -135,20 +135,23 @@ func CheckLiveness(agents []Agent, starts map[int]time.Time) {
 	for i := range agents {
 		a := &agents[i]
 		start, ok := starts[a.PID]
-		if !ok {
-			a.Live = false
-			continue
-		}
-		if a.ProcStart.IsZero() || start.IsZero() {
-			a.Live = true
-			continue
-		}
-		diff := start.Sub(a.ProcStart)
-		if diff < 0 {
-			diff = -diff
-		}
-		a.Live = diff <= startTolerance
+		a.Live = ok && SameProcess(*a, start)
 	}
+}
+
+// SameProcess reports whether a process that started at start is the process
+// the agent registered as, guarding against PID reuse. Callers about to
+// signal or focus an agent should re-check this against a fresh snapshot,
+// since the agent may have exited (and its PID been reused) after the scan.
+func SameProcess(a Agent, start time.Time) bool {
+	if a.ProcStart.IsZero() || start.IsZero() {
+		return true
+	}
+	diff := start.Sub(a.ProcStart)
+	if diff < 0 {
+		diff = -diff
+	}
+	return diff <= startTolerance
 }
 
 // DefaultDir returns the standard registry location, ~/.claude/sessions.
