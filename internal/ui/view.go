@@ -14,6 +14,7 @@ var (
 	titleStyle    = lipgloss.NewStyle().Bold(true)
 	headerStyle   = lipgloss.NewStyle().Faint(true).Underline(true)
 	selectedStyle = lipgloss.NewStyle().Reverse(true)
+	flashStyle    = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("6"))
 	deadStyle     = lipgloss.NewStyle().Faint(true)
 	footerStyle   = lipgloss.NewStyle().Faint(true)
 	noticeStyle   = lipgloss.NewStyle().Bold(true)
@@ -45,8 +46,8 @@ func (m Model) View() string {
 	b.WriteString(titleStyle.Render(title) + "  " + footerStyle.Render(mode) + "\n")
 
 	rows := m.visible()
-	nameW, dirW, sumW := m.columnWidths()
-	b.WriteString(headerStyle.Render(m.formatRowText("●", "STATUS", "AGE", "NAME", "DIR", "SUMMARY", nameW, dirW, sumW)) + "\n")
+	nameW, sumW := m.columnWidths()
+	b.WriteString(headerStyle.Render(m.formatRowText("●", "STATUS", "AGE", "NAME", "SUMMARY", nameW, sumW)) + "\n")
 
 	now := time.Now()
 	max := m.height - 4 // title, header, notice/footer
@@ -67,8 +68,10 @@ func (m Model) View() string {
 			status = "dead"
 		}
 		line := m.formatRowText(statusDot(r.Agent.Live, r.Agent.Status), status, FormatAge(now, r.Age),
-			r.Agent.Name, ShortDir(r.Agent.Cwd), r.Summary, nameW, dirW, sumW)
+			r.Name, r.Summary, nameW, sumW)
 		switch {
+		case i == m.cursor && m.flash%2 == 1:
+			line = flashStyle.Render(line)
 		case i == m.cursor:
 			line = selectedStyle.Render(line)
 		case !r.Agent.Live:
@@ -106,26 +109,32 @@ func statusDot(live bool, status string) string {
 	return "●"
 }
 
-// columnWidths splits the terminal width among the flexible columns.
-func (m Model) columnWidths() (nameW, dirW, sumW int) {
+// columnWidths splits the terminal width between name and summary.
+//
+// The working directory is deliberately not a column: it repeats across most
+// rows and the summary is what tells agents apart. It is still matched by
+// the filter and still orders the "d" sort, so nothing that depended on it
+// is lost.
+func (m Model) columnWidths() (nameW, sumW int) {
 	// Fixed: dot(1)+2 + status(7)+2 + age(6)+2 = 20; the rest splits
-	// name/dir/summary.
+	// name/summary.
 	rest := m.width - 20
 	if rest < 30 {
 		rest = 30
 	}
+	// The name keeps the width it had when there was a directory column;
+	// everything the directory used to take goes to the summary.
 	nameW = rest * 4 / 10
-	dirW = rest * 25 / 100
-	sumW = rest - nameW - dirW - 4 // column gaps
+	sumW = rest - nameW - 2 // column gap
 	if sumW < 10 {
 		sumW = 10
 	}
-	return nameW, dirW, sumW
+	return nameW, sumW
 }
 
-func (m Model) formatRowText(dot, status, age, name, dir, summary string, nameW, dirW, sumW int) string {
-	return fmt.Sprintf("%s  %-7s  %-6s  %s  %s  %s",
-		dot, status, age, pad(name, nameW), pad(dir, dirW), pad(summary, sumW))
+func (m Model) formatRowText(dot, status, age, name, summary string, nameW, sumW int) string {
+	return fmt.Sprintf("%s  %-7s  %-6s  %s  %s",
+		dot, status, age, pad(name, nameW), pad(summary, sumW))
 }
 
 // pad truncates or right-pads s to exactly w display runes.

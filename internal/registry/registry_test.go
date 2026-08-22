@@ -133,3 +133,20 @@ func TestSameProcess(t *testing.T) {
 		t.Error("missing ProcStart falls back to trusting the PID")
 	}
 }
+
+func TestNameIsDerived(t *testing.T) {
+	cases := []struct {
+		name       string
+		agent      Agent
+		wantDerive bool
+	}{
+		{"directory-derived", Agent{Name: "gutenberg-42", NameSource: "derived"}, true},
+		{"no name at all", Agent{Name: ""}, true},
+		{"named after the work", Agent{Name: "Media: keep indexed PNG sub-sizes #81884"}, false},
+	}
+	for _, c := range cases {
+		if got := c.agent.NameIsDerived(); got != c.wantDerive {
+			t.Errorf("%s: NameIsDerived = %v, want %v", c.name, got, c.wantDerive)
+		}
+	}
+}
