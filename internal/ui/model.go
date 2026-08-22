@@ -18,7 +18,11 @@ import (
 
 // Row is one agent plus everything the list displays about it.
 type Row struct {
-	Agent   registry.Agent
+	Agent registry.Agent
+	// Name is what the list shows. It is usually the agent's registered
+	// name, but a session Claude Code named after its directory gets a
+	// better one recovered from its transcript, so the two can differ.
+	Name    string
 	Summary string
 	Age     time.Time // freshest activity timestamp known for the agent
 }
@@ -70,6 +74,7 @@ type Model struct {
 	sort     sortKey
 	cursor   int             // index into visible()
 	stopping *registry.Agent // agent awaiting stop confirmation
+	flash    int             // remaining flash frames on the focused row
 	width    int
 	height   int
 	quitting bool
@@ -97,7 +102,22 @@ type stopMsg struct {
 
 type tickMsg struct{}
 
+type flashMsg struct{}
+
 const pollInterval = time.Second
+
+// Focusing a window takes a few hundred milliseconds of AppleScript, which
+// is long enough to wonder whether the keypress registered. The picked row
+// blinks for the duration so the keypress is visibly acknowledged before
+// anything else happens.
+const (
+	flashInterval = 70 * time.Millisecond
+	flashFrames   = 4
+)
+
+func flashTick() tea.Cmd {
+	return tea.Tick(flashInterval, func(time.Time) tea.Msg { return flashMsg{} })
+}
 
 func (m Model) Init() tea.Cmd {
 	return tea.Batch(fetch(m.source), tick())
@@ -126,7 +146,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case rowsMsg:
 		return m.applyRows(msg), nil
 
+	case flashMsg:
+		if m.flash > 0 {
+			m.flash--
+			if m.flash > 0 {
+				return m, flashTick()
+			}
+		}
+		return m, nil
+
 	case focusMsg:
+		m.flash = 0
 		if msg.err != nil {
 			m.notice = "focus failed: " + msg.err.Error()
 		} else {
@@ -271,10 +301,12 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		f := m.focuser
-		return m, func() tea.Msg {
+		m.notice = "focusing " + rows[m.cursor].Name + "…"
+		m.flash = flashFrames
+		return m, tea.Batch(flashTick(), func() tea.Msg {
 			desc, err := f(agent)
 			return focusMsg{desc: desc, err: err}
-		}
+		})
 	}
 	return m, nil
 }
@@ -310,7 +342,7 @@ func (m Model) visible() []Row {
 	q := strings.ToLower(m.filter)
 	for _, r := range m.rows {
 		if q == "" ||
-			strings.Contains(strings.ToLower(r.Agent.Name), q) ||
+			strings.Contains(strings.ToLower(r.Name), q) ||
 			strings.Contains(strings.ToLower(r.Agent.Cwd), q) ||
 			strings.Contains(strings.ToLower(r.Summary), q) {
 			rows = append(rows, r)
@@ -326,7 +358,7 @@ func (m Model) visible() []Row {
 		case sortAge:
 			return a.Age.After(b.Age)
 		case sortName:
-			return strings.ToLower(a.Agent.Name) < strings.ToLower(b.Agent.Name)
+			return strings.ToLower(a.Name) < strings.ToLower(b.Name)
 		case sortDir:
 			return strings.ToLower(a.Agent.Cwd) < strings.ToLower(b.Agent.Cwd)
 		default:

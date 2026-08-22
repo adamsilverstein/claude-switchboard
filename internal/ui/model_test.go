@@ -15,10 +15,10 @@ var base = time.Date(2026, time.August, 21, 12, 0, 0, 0, time.UTC)
 
 func testRows() []Row {
 	return []Row{
-		{Agent: registry.Agent{PID: 1, Name: "alpha gutenberg fix", Status: "idle", Cwd: "/repo/gutenberg", Live: true}, Summary: "waiting for review", Age: base.Add(-10 * time.Minute)},
-		{Agent: registry.Agent{PID: 2, Name: "beta core patch", Status: "busy", Cwd: "/repo/core", Live: true}, Summary: "running tests", Age: base.Add(-1 * time.Minute)},
-		{Agent: registry.Agent{PID: 3, Name: "gamma docs", Status: "idle", Cwd: "/repo/docs", Live: true}, Summary: "drafting", Age: base.Add(-2 * time.Hour)},
-		{Agent: registry.Agent{PID: 4, Name: "delta finished", Status: "idle", Cwd: "/repo/old", Live: false}, Summary: "done", Age: base.Add(-3 * time.Hour)},
+		{Agent: registry.Agent{PID: 1, Name: "alpha gutenberg fix", Status: "idle", Cwd: "/repo/gutenberg", Live: true}, Name: "alpha gutenberg fix", Summary: "waiting for review", Age: base.Add(-10 * time.Minute)},
+		{Agent: registry.Agent{PID: 2, Name: "beta core patch", Status: "busy", Cwd: "/repo/core", Live: true}, Name: "beta core patch", Summary: "running tests", Age: base.Add(-1 * time.Minute)},
+		{Agent: registry.Agent{PID: 3, Name: "gamma docs", Status: "idle", Cwd: "/repo/docs", Live: true}, Name: "gamma docs", Summary: "drafting", Age: base.Add(-2 * time.Hour)},
+		{Agent: registry.Agent{PID: 4, Name: "delta finished", Status: "idle", Cwd: "/repo/old", Live: false}, Name: "delta finished", Summary: "done", Age: base.Add(-3 * time.Hour)},
 	}
 }
 
@@ -56,6 +56,34 @@ func press(t *testing.T, m Model, key string) (Model, tea.Cmd) {
 	}
 	next, cmd := m.Update(msg)
 	return next.(Model), cmd
+}
+
+// runCmd executes a command and returns every message it produces, flattening
+// the tea.Batch that enter now returns (a flash tick alongside the focus).
+func runCmd(cmd tea.Cmd) []tea.Msg {
+	if cmd == nil {
+		return nil
+	}
+	msg := cmd()
+	batch, ok := msg.(tea.BatchMsg)
+	if !ok {
+		return []tea.Msg{msg}
+	}
+	var msgs []tea.Msg
+	for _, c := range batch {
+		msgs = append(msgs, runCmd(c)...)
+	}
+	return msgs
+}
+
+// applyAll feeds every message a command produced back into the model.
+func applyAll(t *testing.T, m Model, cmd tea.Cmd) Model {
+	t.Helper()
+	for _, msg := range runCmd(cmd) {
+		next, _ := m.Update(msg)
+		m = next.(Model)
+	}
+	return m
 }
 
 func visiblePIDs(m Model) []int {
@@ -147,14 +175,41 @@ func TestEnterFocusesSelection(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("enter should produce a focus command")
 	}
-	msg := cmd()
+	// The keypress is acknowledged before the focus finishes, so the row
+	// flashes and the footer says what is happening straight away.
+	if m.flash == 0 {
+		t.Error("enter should start the flash on the picked row")
+	}
+	if !strings.Contains(m.View(), "focusing gamma docs") {
+		t.Error("view should say which agent is being focused, before it lands")
+	}
+	m = applyAll(t, m, cmd)
 	if focused != 3 {
 		t.Errorf("focused PID = %d, want 3 (second row in status order)", focused)
 	}
-	next, _ := m.Update(msg)
-	m = next.(Model)
 	if !strings.Contains(m.View(), "focused iTerm window 3") {
 		t.Error("view should show the focus notice")
+	}
+	if m.flash != 0 {
+		t.Error("flash should stop once the focus lands")
+	}
+}
+
+func TestFlashDecaysToZero(t *testing.T) {
+	m := loaded(t, func(a registry.Agent) (string, error) { return "somewhere", nil })
+	m, _ = press(t, m, "enter")
+	start := m.flash
+	if start == 0 {
+		t.Fatal("enter should start the flash")
+	}
+	// Each flash frame schedules the next until it runs out, so the row
+	// cannot blink forever if the focus never reports back.
+	for i := 0; i < start+2; i++ {
+		next, _ := m.Update(flashMsg{})
+		m = next.(Model)
+	}
+	if m.flash != 0 {
+		t.Errorf("flash = %d after %d frames, want 0", m.flash, start+2)
 	}
 }
 
@@ -178,8 +233,7 @@ func TestFocusErrorShownInFooter(t *testing.T) {
 		return "", fmt.Errorf("no iTerm window found")
 	})
 	m, cmd := press(t, m, "enter")
-	next, _ := m.Update(cmd())
-	m = next.(Model)
+	m = applyAll(t, m, cmd)
 	if !strings.Contains(m.View(), "focus failed: no iTerm window found") {
 		t.Error("view should surface the focus error")
 	}
@@ -207,6 +261,25 @@ func TestViewRendersColumns(t *testing.T) {
 		if !strings.Contains(view, want) {
 			t.Errorf("view missing %q", want)
 		}
+	}
+	// The working directory is not a column any more; the room goes to the
+	// summary instead.
+	for _, gone := range []string{"DIR", "/repo/gutenberg"} {
+		if strings.Contains(view, gone) {
+			t.Errorf("view should no longer show %q", gone)
+		}
+	}
+}
+
+func TestFilterStillMatchesDirectory(t *testing.T) {
+	// The column is gone but the directory is still worth filtering on.
+	m := loaded(t, nil)
+	m, _ = press(t, m, "/")
+	for _, r := range "gutenberg" {
+		m, _ = press(t, m, string(r))
+	}
+	if got := visiblePIDs(m); !pidsEqual(got, []int{1}) {
+		t.Errorf("directory filter = %v, want [1]", got)
 	}
 }
 

@@ -20,6 +20,7 @@ type Agent struct {
 	PID                 int
 	SessionID           string
 	Name                string
+	NameSource          string // "derived" when Claude Code named the session after its directory
 	Status              string // "idle", "busy", "shell", or "" when unknown
 	Cwd                 string
 	Entrypoint          string // "cli", "sdk-cli", "sdk-py", ...
@@ -40,12 +41,21 @@ type Agent struct {
 	File string
 }
 
+// NameIsDerived reports whether the agent's name was auto-generated from its
+// working directory ("gutenberg-42") rather than from the work it is doing.
+// Claude Code marks those with nameSource "derived"; a session named after
+// the task it was given carries no nameSource at all.
+func (a Agent) NameIsDerived() bool {
+	return a.Name == "" || a.NameSource == "derived"
+}
+
 // rawAgent mirrors the on-disk JSON. Timestamps are epoch milliseconds,
 // except procStart which is a ctime-style string in UTC.
 type rawAgent struct {
 	PID                 int    `json:"pid"`
 	SessionID           string `json:"sessionId"`
 	Name                string `json:"name"`
+	NameSource          string `json:"nameSource"`
 	Status              string `json:"status"`
 	Cwd                 string `json:"cwd"`
 	Entrypoint          string `json:"entrypoint"`
@@ -92,6 +102,7 @@ func Scan(dir string) ([]Agent, error) {
 			PID:                 raw.PID,
 			SessionID:           raw.SessionID,
 			Name:                raw.Name,
+			NameSource:          raw.NameSource,
 			Status:              raw.Status,
 			Cwd:                 raw.Cwd,
 			Entrypoint:          raw.Entrypoint,

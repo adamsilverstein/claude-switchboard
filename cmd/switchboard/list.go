@@ -50,11 +50,9 @@ func runList(args []string) error {
 	if err != nil {
 		return err
 	}
-	var projectsDir string
-	if *summary {
-		if projectsDir, err = activity.DefaultProjectsDir(); err != nil {
-			return err
-		}
+	projectsDir, err := activity.DefaultProjectsDir()
+	if err != nil {
+		return err
 	}
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
@@ -76,16 +74,17 @@ func runList(args []string) error {
 			status = "dead"
 		}
 		age := statusTime(a)
+		act := activity.For(projectsDir, a.Cwd, a.SessionID)
+		if age.IsZero() {
+			age = act.Modified
+		}
 		row := ""
 		if *summary {
-			act := activity.For(projectsDir, a.Cwd, a.SessionID)
-			if age.IsZero() {
-				age = act.Modified
-			}
 			row = "\t" + ui.Truncate(act.Summary, 80)
 		}
 		fmt.Fprintf(w, "%d\t%s\t%s\t%s\t%s%s\n",
-			a.PID, status, ui.FormatAge(now, age), ui.ShortDir(a.Cwd), a.Name, row)
+			a.PID, status, ui.FormatAge(now, age), ui.ShortDir(a.Cwd),
+			displayName(projectsDir, a, act), row)
 	}
 	return w.Flush()
 }

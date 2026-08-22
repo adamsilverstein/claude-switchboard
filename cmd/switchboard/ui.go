@@ -31,7 +31,12 @@ func runUI() error {
 			if age.IsZero() {
 				age = act.Modified
 			}
-			rows = append(rows, ui.Row{Agent: a, Summary: act.Summary, Age: age})
+			rows = append(rows, ui.Row{
+				Agent:   a,
+				Name:    displayName(projectsDir, a, act),
+				Summary: act.Summary,
+				Age:     age,
+			})
 		}
 		return rows, nil
 	}

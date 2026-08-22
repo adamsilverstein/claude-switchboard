@@ -16,6 +16,7 @@ import (
 // Activity is what the transcript reveals about an agent.
 type Activity struct {
 	Summary  string    // last assistant text, collapsed to one line
+	Title    string    // Claude Code's own generated title for the session
 	Modified time.Time // transcript mtime, a fallback for age display
 }
 
@@ -55,7 +56,8 @@ func For(projectsDir, cwd, sessionID string) Activity {
 	if _, err := f.ReadAt(buf, offset); err != nil {
 		return Activity{Modified: info.ModTime()}
 	}
-	return Activity{Summary: lastAssistantText(buf, offset > 0), Modified: info.ModTime()}
+	summary, title := scanTail(buf, offset > 0)
+	return Activity{Summary: summary, Title: title, Modified: info.ModTime()}
 }
 
 // Slug converts a working directory to the directory name Claude Code uses
@@ -64,11 +66,13 @@ func Slug(cwd string) string {
 	return strings.NewReplacer("/", "-", ".", "-").Replace(cwd)
 }
 
-// transcriptLine is the subset of a transcript entry the summary needs.
+// transcriptLine is the subset of a transcript entry this package needs.
 // message.content is either a string or an array of typed blocks depending
 // on the entry, so it is decoded in two steps.
 type transcriptLine struct {
 	Type    string `json:"type"`
+	AITitle string `json:"aiTitle"`
+	IsMeta  bool   `json:"isMeta"`
 	Message struct {
 		Content json.RawMessage `json:"content"`
 	} `json:"message"`
@@ -79,16 +83,23 @@ type contentBlock struct {
 	Text string `json:"text"`
 }
 
-// lastAssistantText scans newline-delimited JSON for the final assistant
-// entry that carries text. When truncated is true the first line is the tail
-// of a longer line and is dropped; a trailing partial line (an entry being
-// written right now) simply fails to parse and is skipped.
-func lastAssistantText(buf []byte, truncated bool) string {
+// scanTail walks the tail backwards for the two things it can offer: the
+// last assistant text (the summary) and the last "ai-title" entry, which is
+// the title Claude Code generated for the session itself. Both are optional.
+//
+// When truncated is true the first line is the tail of a longer line and is
+// dropped; a trailing partial line (an entry being written right now) simply
+// fails to parse and is skipped.
+//
+// Searching only the tail is enough for the title: Claude Code rewrites the
+// ai-title entry as the session goes on, so a session that has a title has
+// one near the end. A session with no title in the tail has none at all.
+func scanTail(buf []byte, truncated bool) (summary, title string) {
 	lines := bytes.Split(buf, []byte("\n"))
 	if truncated && len(lines) > 0 {
 		lines = lines[1:]
 	}
-	for i := len(lines) - 1; i >= 0; i-- {
+	for i := len(lines) - 1; i >= 0 && (summary == "" || title == ""); i-- {
 		line := bytes.TrimSpace(lines[i])
 		if len(line) == 0 {
 			continue
@@ -97,14 +108,21 @@ func lastAssistantText(buf []byte, truncated bool) string {
 		if err := json.Unmarshal(line, &entry); err != nil {
 			continue
 		}
-		if entry.Type != "assistant" || len(entry.Message.Content) == 0 {
-			continue
-		}
-		if text := contentText(entry.Message.Content); text != "" {
-			return oneLine(text)
+		switch entry.Type {
+		case "ai-title":
+			if title == "" {
+				title = oneLine(entry.AITitle)
+			}
+		case "assistant":
+			if summary != "" || len(entry.Message.Content) == 0 {
+				continue
+			}
+			if text := contentText(entry.Message.Content); text != "" {
+				summary = oneLine(text)
+			}
 		}
 	}
-	return ""
+	return summary, title
 }
 
 func contentText(raw json.RawMessage) string {
@@ -154,4 +172,67 @@ func DefaultProjectsDir() (string, error) {
 		return "", err
 	}
 	return filepath.Join(home, ".claude", "projects"), nil
+}
+
+// headBytes bounds how much of the transcript FirstPrompt reads. The opening
+// entries carry the system prompt and any pasted context, so a few dozen
+// lines can already run to tens of kilobytes.
+const headBytes = 64 * 1024
+
+// FirstPrompt returns the first thing the user actually typed in a session,
+// as a fallback name for sessions Claude Code never titled. It reads only
+// the head of the transcript.
+//
+// Entries wrapped in angle brackets are skipped: those are Claude Code's own
+// scaffolding (command wrappers, local command output, caveats), not
+// something the user wrote. So are entries flagged isMeta, which are
+// instructions the harness injects as if they came from the user.
+//
+// Returns "" when the head holds no user text, which happens when the
+// opening entries are large enough to fill it on their own.
+func FirstPrompt(projectsDir, cwd, sessionID string) string {
+	if cwd == "" || sessionID == "" {
+		return ""
+	}
+	f, err := os.Open(filepath.Join(projectsDir, Slug(cwd), sessionID+".jsonl"))
+	if err != nil {
+		return ""
+	}
+	defer f.Close()
+
+	buf := make([]byte, headBytes)
+	n, _ := f.Read(buf)
+	if n <= 0 {
+		return ""
+	}
+	return firstUserText(buf[:n])
+}
+
+// firstUserText finds the first genuine user message in a transcript head.
+// The final line is dropped: a bounded read almost always cuts one in half,
+// and a half line is not worth guessing at.
+func firstUserText(buf []byte) string {
+	lines := bytes.Split(buf, []byte("\n"))
+	if len(lines) > 0 {
+		lines = lines[:len(lines)-1]
+	}
+	for _, line := range lines {
+		line = bytes.TrimSpace(line)
+		if len(line) == 0 {
+			continue
+		}
+		var entry transcriptLine
+		if err := json.Unmarshal(line, &entry); err != nil {
+			continue
+		}
+		if entry.Type != "user" || entry.IsMeta || len(entry.Message.Content) == 0 {
+			continue
+		}
+		text := strings.TrimSpace(contentText(entry.Message.Content))
+		if text == "" || strings.HasPrefix(text, "<") {
+			continue
+		}
+		return oneLine(text)
+	}
+	return ""
 }

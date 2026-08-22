@@ -106,3 +106,56 @@ func TestOneLineCapsLength(t *testing.T) {
 		t.Errorf("oneLine returned %d bytes", len(got))
 	}
 }
+
+func TestForReadsAITitle(t *testing.T) {
+	content := strings.Join([]string{
+		`{"type":"ai-title","aiTitle":"Stale earlier title","sessionId":"x"}`,
+		`{"type":"user","message":{"role":"user","content":"carry on"}}`,
+		`{"type":"ai-title","aiTitle":"Clean up worktrees","sessionId":"x"}`,
+		`{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"on it"}]}}`,
+	}, "\n") + "\n"
+	a := For(writeTranscript(t, cwd, session, content), cwd, session)
+	// The newest title wins: Claude Code rewrites it as the session moves on.
+	if a.Title != "Clean up worktrees" {
+		t.Errorf("Title = %q, want %q", a.Title, "Clean up worktrees")
+	}
+	if a.Summary != "on it" {
+		t.Errorf("Summary = %q, want %q", a.Summary, "on it")
+	}
+}
+
+func TestForWithoutAITitle(t *testing.T) {
+	content := `{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"working"}]}}` + "\n"
+	if a := For(writeTranscript(t, cwd, session, content), cwd, session); a.Title != "" {
+		t.Errorf("Title = %q, want empty", a.Title)
+	}
+}
+
+func TestFirstPromptSkipsScaffolding(t *testing.T) {
+	content := strings.Join([]string{
+		`{"type":"user","message":{"role":"user","content":"<local-command-caveat>ignore me</local-command-caveat>"}}`,
+		`{"type":"user","isMeta":true,"message":{"role":"user","content":"The output above is already visible to the user."}}`,
+		`{"type":"user","message":{"role":"user","content":"review PR 81885 and fix the findings"}}`,
+		`{"type":"user","message":{"role":"user","content":"a later prompt"}}`,
+	}, "\n") + "\n"
+	got := FirstPrompt(writeTranscript(t, cwd, session, content), cwd, session)
+	if got != "review PR 81885 and fix the findings" {
+		t.Errorf("FirstPrompt = %q", got)
+	}
+}
+
+func TestFirstPromptDropsTrailingPartialLine(t *testing.T) {
+	// A bounded read almost always cuts the last line in half, so the last
+	// line is never trusted. Here the only user entry is that partial one.
+	content := `{"type":"system","content":"boot"}` + "\n" +
+		`{"type":"user","message":{"role":"user","content":"cut in ha`
+	if got := FirstPrompt(writeTranscript(t, cwd, session, content), cwd, session); got != "" {
+		t.Errorf("FirstPrompt = %q, want empty", got)
+	}
+}
+
+func TestFirstPromptMissingTranscript(t *testing.T) {
+	if got := FirstPrompt(t.TempDir(), cwd, session); got != "" {
+		t.Errorf("FirstPrompt = %q, want empty", got)
+	}
+}
