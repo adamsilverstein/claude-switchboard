@@ -59,7 +59,7 @@ func (res *Resolver) Resolve(tmuxField, tty string) Location {
 		Backend:   "iterm",
 		Desc:      fmt.Sprintf("iTerm window %d, tab %d, session %d (%s)", s.WindowIndex, s.TabIndex, s.SessionIndex, tty),
 		Focusable: true,
-		Commands:  []Command{FocusCommand(s.SessionID)},
+		Commands:  []Command{FocusCommand(s)},
 	}
 }
 
@@ -99,7 +99,7 @@ func (res *Resolver) resolveTmux(field string) Location {
 		Backend:   "tmux",
 		Desc:      fmt.Sprintf("%s, via iTerm window %d, tab %d (%s)", desc, host.WindowIndex, host.TabIndex, tty),
 		Focusable: true,
-		Commands:  append([]Command{FocusCommand(host.SessionID)}, sel...),
+		Commands:  append([]Command{FocusCommand(host)}, sel...),
 	}
 }
 

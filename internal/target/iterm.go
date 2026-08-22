@@ -16,33 +16,45 @@ type ItermSession struct {
 }
 
 // listSessionsScript enumerates every window, tab, and session with its tty
-// in ONE osascript invocation. The AppleScript bridge costs ~136ms per call,
-// roughly fourteen times the entire registry scan, so it must never be
-// called per agent. The separators are "\t" and "\n" string escapes rather
-// than AppleScript's tab and linefeed constants: inside the iTerm2 tell
-// block, "tab" resolves to iTerm's tab class and stringifies as the word
-// "tab" instead of the character.
+// in ONE osascript invocation.
+//
+// Each Apple Event costs roughly 20ms, so the cost of this script is set by
+// how many properties it asks for, not how much AppleScript it runs. Asking
+// per session ("repeat with s in sessions ... get tty of s") took ~2.0s on a
+// 22-window desktop. Asking for all of one property at once - "tty of
+// sessions of tabs of windows" - is three events total and takes ~0.13s for
+// byte-identical output. The nested list shape (windows, then tabs, then
+// sessions) survives in AppleScript even though coercing it to a string
+// flattens it, so the indices are recovered by walking the lists locally,
+// which costs nothing.
+//
+// The separators are "\t" and "\n" string escapes rather than AppleScript's
+// tab and linefeed constants: inside the iTerm2 tell block, "tab" resolves
+// to iTerm's tab class and stringifies as the word "tab" instead of the
+// character.
 const listSessionsScript = `tell application "iTerm2"
-	set out to ""
-	set wi to 0
-	repeat with w in windows
-		set wi to wi + 1
-		set ti to 0
-		repeat with t in tabs of w
-			set ti to ti + 1
-			set si to 0
-			repeat with s in sessions of t
-				set si to si + 1
-				set ttyPath to "-"
-				try
-					set ttyPath to tty of s
-				end try
-				set out to out & wi & "\t" & (id of w) & "\t" & ti & "\t" & si & "\t" & (id of s) & "\t" & ttyPath & "\n"
-			end repeat
+	set winIds to id of windows
+	set sessIds to id of sessions of tabs of windows
+	set sessTtys to tty of sessions of tabs of windows
+end tell
+if class of winIds is not list then set winIds to {winIds}
+set out to ""
+repeat with wi from 1 to (count of winIds)
+	set wid to item wi of winIds
+	set tabIds to item wi of sessIds
+	set tabTtys to item wi of sessTtys
+	repeat with ti from 1 to (count of tabIds)
+		set sessOfTab to item ti of tabIds
+		set ttyOfTab to item ti of tabTtys
+		repeat with si from 1 to (count of sessOfTab)
+			set sid to item si of sessOfTab
+			set tv to item si of ttyOfTab
+			if tv is missing value then set tv to "-"
+			set out to out & wi & "\t" & wid & "\t" & ti & "\t" & si & "\t" & sid & "\t" & tv & "\n"
 		end repeat
 	end repeat
-	return out
-end tell`
+end repeat
+return out`
 
 // ListItermSessions enumerates iTerm2. An error here (iTerm not running,
 // automation permission denied) should degrade to a listing without window
@@ -87,31 +99,77 @@ func ParseItermSessions(out string) []ItermSession {
 	return sessions
 }
 
-// focusSessionScript selects a session by UUID: the session within its tab,
-// the tab within its window, then raises and activates the window. The
-// window follows its own Space rather than being dragged to the current one.
+// focusSessionScript selects a session, then its tab, then raises its
+// window, and activates iTerm only if it is not already the frontmost app.
+// The window follows its own Space rather than being dragged to the current
+// one.
+//
+// It takes the window id and the tab and session indices recorded at
+// enumeration so it can address the session directly, and confirms the UUID
+// at that position before selecting anything. Scanning every window instead
+// cost up to 1.2s on a 22-window desktop; addressing it directly is ~0.2s,
+// which is mostly osascript startup. The window is addressed by id, not
+// index, because iTerm orders "windows" front-to-back and focusing anything
+// reshuffles the indices.
+//
+// The scan remains as a fallback for when the layout moved between
+// enumeration and focus - a tab dragged to another window, a pane closed -
+// so a stale position self-heals instead of failing.
+//
+// The activate is guarded because it is by far the most expensive step:
+// ~2.1s against ~0.03s for reading the frontmost property. Pressing enter in
+// a picker that is itself running in iTerm never needs it, which is the
+// common case; switching in from another app still pays for it.
 const focusSessionScript = `on run argv
 	set targetId to item 1 of argv
+	set wid to (item 2 of argv) as integer
+	set ti to (item 3 of argv) as integer
+	set si to (item 4 of argv) as integer
+	set found to false
 	tell application "iTerm2"
-		repeat with w in windows
-			repeat with t in tabs of w
-				repeat with s in sessions of t
-					if (id of s) is targetId then
-						select s
-						select t
-						select w
-						activate
-						return "ok"
-					end if
+		try
+			set w to window id wid
+			set t to tab ti of w
+			set s to session si of t
+			if (id of s) is targetId then
+				select s
+				select t
+				select w
+				set found to true
+			end if
+		end try
+		if not found then
+			repeat with w in windows
+				repeat with t in tabs of w
+					repeat with s in sessions of t
+						if (id of s) is targetId then
+							select s
+							select t
+							select w
+							set found to true
+							exit repeat
+						end if
+					end repeat
+					if found then exit repeat
 				end repeat
+				if found then exit repeat
 			end repeat
-		end repeat
+		end if
+		if found and not frontmost then activate
 	end tell
-	return "not found"
+	if not found then return "not found"
+	return "ok"
 end run`
 
 // FocusCommand returns the single osascript step that focuses an iTerm
-// session by UUID.
-func FocusCommand(sessionID string) Command {
-	return Command{Name: "osascript", Args: []string{"-e", focusSessionScript, sessionID}}
+// session. The session's recorded position is passed as a hint; the script
+// verifies the UUID there and falls back to a scan if it has moved.
+func FocusCommand(s ItermSession) Command {
+	return Command{Name: "osascript", Args: []string{
+		"-e", focusSessionScript,
+		s.SessionID,
+		strconv.Itoa(s.WindowID),
+		strconv.Itoa(s.TabIndex),
+		strconv.Itoa(s.SessionIndex),
+	}}
 }
