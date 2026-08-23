@@ -99,10 +99,9 @@ func ParseItermSessions(out string) []ItermSession {
 	return sessions
 }
 
-// focusSessionScript selects a session, then its tab, then raises its
-// window, and activates iTerm only if it is not already the frontmost app.
-// The window follows its own Space rather than being dragged to the current
-// one.
+// focusSessionScript brings iTerm forward and then selects a session, its
+// tab, and its window. The window follows its own Space rather than being
+// dragged to the current one.
 //
 // It takes the window id and the tab and session indices recorded at
 // enumeration so it can address the session directly, and confirms the UUID
@@ -114,12 +113,24 @@ func ParseItermSessions(out string) []ItermSession {
 //
 // The scan remains as a fallback for when the layout moved between
 // enumeration and focus - a tab dragged to another window, a pane closed -
-// so a stale position self-heals instead of failing.
+// so a stale position self-heals instead of failing. It only records where
+// the session turned up; the selecting happens afterwards, addressed by
+// window id, so raising a window mid-scan cannot invalidate the loop.
 //
-// The activate is guarded because it is by far the most expensive step:
-// ~2.1s against ~0.03s for reading the frontmost property. Pressing enter in
-// a picker that is itself running in iTerm never needs it, which is the
-// common case; switching in from another app still pays for it.
+// Activating comes before selecting, and that order is the whole fix for
+// multi-monitor desktops. macOS answers an activate by bringing forward the
+// app's window on the display the user is already looking at, so an
+// activate issued after the select threw the selection away: picking an
+// agent on the second monitor jumped to whatever iTerm window happened to
+// sit on the first. Selecting last leaves the requested window as the one
+// macOS settles on.
+//
+// The activate is still guarded, because it is by far the most expensive
+// step: ~2.1s against ~0.03s for reading the frontmost property. Pressing
+// enter in a picker that is itself running in iTerm never needs it, which is
+// the common case; switching in from the Switchboard app still pays for it.
+// It is also guarded on having found the session, so focusing an agent whose
+// window has since closed does not yank iTerm forward for nothing.
 const focusSessionScript = `on run argv
 	set targetId to item 1 of argv
 	set wid to (item 2 of argv) as integer
@@ -128,24 +139,22 @@ const focusSessionScript = `on run argv
 	set found to false
 	tell application "iTerm2"
 		try
-			set w to window id wid
-			set t to tab ti of w
-			set s to session si of t
-			if (id of s) is targetId then
-				select s
-				select t
-				select w
+			if (id of session si of tab ti of (window id wid)) is targetId then
 				set found to true
 			end if
 		end try
 		if not found then
-			repeat with w in windows
-				repeat with t in tabs of w
-					repeat with s in sessions of t
-						if (id of s) is targetId then
-							select s
-							select t
-							select w
+			set wins to windows
+			repeat with wj from 1 to (count of wins)
+				set w to item wj of wins
+				set tabsOfW to tabs of w
+				repeat with tj from 1 to (count of tabsOfW)
+					set sessOfT to sessions of (item tj of tabsOfW)
+					repeat with sj from 1 to (count of sessOfT)
+						if (id of item sj of sessOfT) is targetId then
+							set wid to id of w
+							set ti to tj
+							set si to sj
 							set found to true
 							exit repeat
 						end if
@@ -155,7 +164,14 @@ const focusSessionScript = `on run argv
 				if found then exit repeat
 			end repeat
 		end if
-		if found and not frontmost then activate
+		if found then
+			if not frontmost then activate
+			set w to window id wid
+			set t to tab ti of w
+			select session si of t
+			select t
+			select w
+		end if
 	end tell
 	if not found then return "not found"
 	return "ok"
