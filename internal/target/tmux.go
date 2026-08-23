@@ -47,6 +47,25 @@ func clientTTY(r Runner, session string) string {
 	return ""
 }
 
+// AttachedTmuxSessions returns the names of tmux sessions with at least one
+// client attached, meaning the panes inside them are on someone's screen. A
+// detached session's panes are running but displayed nowhere. An error (tmux
+// absent, no server) means the answer is unknown, and callers should treat
+// that as "assume attached" rather than hiding agents.
+func AttachedTmuxSessions(r Runner) (map[string]bool, error) {
+	out, err := r.Run("tmux", "list-clients", "-F", "#{session_name}")
+	if err != nil {
+		return nil, err
+	}
+	attached := make(map[string]bool)
+	for _, line := range strings.Split(out, "\n") {
+		if name := strings.TrimSpace(line); name != "" {
+			attached[name] = true
+		}
+	}
+	return attached, nil
+}
+
 // tmuxSelectCommands selects the agent's window and pane inside tmux.
 func tmuxSelectCommands(ref TmuxRef) []Command {
 	windowTarget := fmt.Sprintf("%s:%s", ref.Session, ref.Window)

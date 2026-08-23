@@ -24,6 +24,7 @@ func runUI() error {
 		if err != nil {
 			return nil, err
 		}
+		agents = onScreen(target.ExecRunner{}, agents)
 		rows := make([]ui.Row, 0, len(agents))
 		for _, a := range agents {
 			act := activity.For(projectsDir, a.Cwd, a.SessionID)

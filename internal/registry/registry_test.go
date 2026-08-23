@@ -150,3 +150,21 @@ func TestNameIsDerived(t *testing.T) {
 		}
 	}
 }
+
+func TestFocusableExcludesSDKSessions(t *testing.T) {
+	cases := []struct {
+		entrypoint string
+		want       bool
+	}{
+		{"cli", true},
+		{"", true},        // unknown shape: show it rather than hide it
+		{"desktop", true}, // a front-end we do not know about is still a terminal
+		{"sdk-cli", false},
+		{"sdk-py", false},
+	}
+	for _, c := range cases {
+		if got := (Agent{Entrypoint: c.entrypoint}).Focusable(); got != c.want {
+			t.Errorf("Focusable() with entrypoint %q = %v, want %v", c.entrypoint, got, c.want)
+		}
+	}
+}

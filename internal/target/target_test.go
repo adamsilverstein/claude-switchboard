@@ -63,6 +63,7 @@ type fakeRunner struct {
 	iterm    string
 	itermErr error
 	tmux     string
+	tmuxErr  error
 	calls    []string
 }
 
@@ -72,7 +73,7 @@ func (f *fakeRunner) Run(name string, args ...string) (string, error) {
 	case "osascript":
 		return f.iterm, f.itermErr
 	case "tmux":
-		return f.tmux, nil
+		return f.tmux, f.tmuxErr
 	}
 	return "", fmt.Errorf("unexpected command %s", name)
 }
@@ -214,5 +215,23 @@ func TestFocusDetectsVanishedSession(t *testing.T) {
 	loc := Location{Focusable: true, Commands: []Command{{Name: "osascript", Args: []string{"-e", "x"}}}}
 	if err := Focus(r, loc); err == nil {
 		t.Error("expected an error when the focus script reports not found")
+	}
+}
+
+func TestAttachedTmuxSessions(t *testing.T) {
+	r := &fakeRunner{tmux: "work\n\nwork\nreview\n"}
+	attached, err := AttachedTmuxSessions(r)
+	if err != nil {
+		t.Fatalf("AttachedTmuxSessions: %v", err)
+	}
+	if len(attached) != 2 || !attached["work"] || !attached["review"] {
+		t.Errorf("attached = %v, want work and review", attached)
+	}
+}
+
+func TestAttachedTmuxSessionsReportsFailure(t *testing.T) {
+	r := &fakeRunner{tmuxErr: fmt.Errorf("no server running")}
+	if _, err := AttachedTmuxSessions(r); err == nil {
+		t.Fatal("want an error when tmux cannot answer")
 	}
 }
