@@ -83,6 +83,16 @@ func runApp(args []string) error {
 		return fmt.Errorf("app: %w", err)
 	}
 
+	// cmd-q, forwarded by the page: this window has no menu bar, so the
+	// shortcut has to come back through the bridge. Terminate is queued
+	// rather than called inline so the window tears down after this
+	// callback returns, not during it.
+	if err := w.Bind("quitApp", func() {
+		w.Dispatch(w.Terminate)
+	}); err != nil {
+		return fmt.Errorf("app: %w", err)
+	}
+
 	go func() {
 		buf := make([]byte, 32*1024)
 		for {

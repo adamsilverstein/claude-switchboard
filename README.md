@@ -125,8 +125,9 @@ The window is a WKWebView running a vendored copy of
 behind it on a pty - same keys, same behavior, zero extra runtimes to
 install. The first focus from the app triggers a one-time macOS Automation
 permission prompt for controlling iTerm, attributed to Switchboard rather
-than to your terminal. Quitting the picker with `q` closes the window, and
-closing the window stops the picker.
+than to your terminal. Quitting the picker with `q` closes the window, `cmd-q`
+closes it from anywhere in the window, and closing the window stops the
+picker.
 
 `switchboard app` needs a cgo build (the default on macOS); cross-compiled
 `CGO_ENABLED=0` release binaries print an explanatory error instead.

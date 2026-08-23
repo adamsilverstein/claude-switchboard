@@ -18,6 +18,7 @@ func TestAppHTMLIsSelfContained(t *testing.T) {
 		"ptyInput",
 		"ptyResize",
 		"ptyReady",
+		"quitApp",
 	} {
 		if !strings.Contains(html, want) {
 			t.Errorf("appHTML missing %q", want)
@@ -32,5 +33,28 @@ func TestAppHTMLIsSelfContained(t *testing.T) {
 		if strings.Contains(html, banned) {
 			t.Errorf("appHTML contains external reference %q", banned)
 		}
+	}
+}
+
+func TestAppHTMLHandlesCommandQ(t *testing.T) {
+	html := appHTML()
+
+	// The app window has no menu bar, so cmd-q only works if the page
+	// intercepts it and calls back into Go.
+	for _, want := range []string{
+		"e.metaKey",
+		`"q"`,
+		"quitApp();",
+	} {
+		if !strings.Contains(html, want) {
+			t.Errorf("appHTML missing cmd-q handler part %q", want)
+		}
+	}
+
+	// Capture phase: xterm.js listens on its own textarea, so a bubbling
+	// listener would be too late to stop the key reaching the pty.
+	if !strings.Contains(html, `window.addEventListener("keydown", (e) => {`) ||
+		!strings.Contains(html, "}, true);") {
+		t.Error("appHTML cmd-q listener is not registered on window in the capture phase")
 	}
 }
