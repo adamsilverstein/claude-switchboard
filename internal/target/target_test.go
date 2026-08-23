@@ -235,3 +235,23 @@ func TestAttachedTmuxSessionsReportsFailure(t *testing.T) {
 		t.Fatal("want an error when tmux cannot answer")
 	}
 }
+
+// The focus script must activate iTerm before it selects anything. With two
+// displays macOS answers an activate by raising whatever iTerm window sits
+// on the display the user is already looking at, which undoes a selection
+// made beforehand: asking for a window on the second monitor lands on a
+// window on the first. Activating first and selecting after leaves the
+// selection as the last word.
+func TestFocusScriptActivatesBeforeSelecting(t *testing.T) {
+	activate := strings.Index(focusSessionScript, "activate")
+	if activate < 0 {
+		t.Fatal("focus script never activates iTerm")
+	}
+	sel := strings.Index(focusSessionScript, "select ")
+	if sel < 0 {
+		t.Fatal("focus script never selects a session")
+	}
+	if activate > sel {
+		t.Error("activate must come before the first select, or macOS raises the window on the active display instead of the requested one")
+	}
+}
