@@ -20,6 +20,10 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 # case-insensitive, so it would collide with the "Switchboard" launcher.
 go build -o "$APP/Contents/MacOS/switchboard-bin" ./cmd/switchboard
 
+# The icon gives the bundle a Dock, cmd-tab, and Finder identity of its own.
+# Regenerate it from assets/icon.svg with scripts/make-icon.sh.
+cp assets/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
+
 # Info.plist cannot pass arguments to the executable, so the bundle entry
 # point is a two-line launcher that runs the binary in app mode.
 cat > "$APP/Contents/MacOS/Switchboard" <<'EOF'
@@ -35,6 +39,8 @@ cat > "$APP/Contents/Info.plist" <<'EOF'
 <dict>
 	<key>CFBundleExecutable</key>
 	<string>Switchboard</string>
+	<key>CFBundleIconFile</key>
+	<string>AppIcon</string>
 	<key>CFBundleIdentifier</key>
 	<string>com.adamsilverstein.switchboard</string>
 	<key>CFBundleName</key>
