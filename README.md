@@ -2,11 +2,23 @@
 
 A keyboard-driven picker for live Claude Code agents.
 
-Running eight or ten Claude Code sessions at once, one per iTerm window,
-there is no way to tell which ones need attention without clicking through
-every window. `switchboard` lists every live agent on this machine - status,
-name, age, and a one-line summary of what it is doing - and jumps focus to
-the terminal window running the one you pick.
+## What it is
+
+`switchboard` lists every Claude Code agent running on this machine - status,
+name, age, and a one-line summary of what it is doing - and jumps focus to the
+terminal window the one you pick is sitting in. It runs in your terminal, or in
+its own app window with a Dock icon and a cmd-tab entry.
+
+## Why
+
+Running eight or ten agents at once, one per iTerm window, there is no way to
+tell which ones need attention without clicking through every one of them. Some
+are waiting on an answer, some are still working, and the only way to find out
+is to go and look at each window in turn.
+
+`switchboard` answers that from one screen - who is idle, what each one last
+said, how long it has been sitting there - and then gets you to the right
+window in a single keystroke.
 
 ```
 switchboard  sort: status
