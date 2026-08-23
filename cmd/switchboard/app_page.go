@@ -20,11 +20,12 @@ var (
 
 // appHTML assembles the single self-contained page shown in the app window.
 //
-// The page talks to Go through two bound functions (ptyInput, ptyResize)
-// plus ptyReady, which signals that the terminal exists and buffered pty
-// output can be flushed. Go pushes output by evaluating __ptyOut with a
-// base64 chunk; bytes cross the bridge undecoded so multi-byte sequences
-// split across chunks reassemble inside xterm.js.
+// The page talks to Go through bound functions: ptyInput and ptyResize
+// carry the terminal both ways, ptyReady signals that the terminal exists
+// and buffered pty output can be flushed, and quitApp closes the window.
+// Go pushes output by evaluating __ptyOut with a base64 chunk; bytes cross
+// the bridge undecoded so multi-byte sequences split across chunks
+// reassemble inside xterm.js.
 func appHTML() string {
 	var b strings.Builder
 	b.WriteString(`<!doctype html>
@@ -61,6 +62,17 @@ const b64ToBytes = (b64) => Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
 window.__ptyOut = (b64) => term.write(b64ToBytes(b64));
 
 term.onData((d) => ptyInput(d));
+
+// The window has no menu bar, so macOS gives us no cmd-q of its own.
+// Catch it here - in the capture phase, before xterm.js sees the key -
+// and ask Go to close the window.
+window.addEventListener("keydown", (e) => {
+	if (e.metaKey && !e.ctrlKey && !e.altKey && e.key.toLowerCase() === "q") {
+		e.preventDefault();
+		e.stopPropagation();
+		quitApp();
+	}
+}, true);
 
 const doFit = () => {
 	fit.fit();
