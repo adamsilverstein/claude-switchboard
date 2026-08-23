@@ -1,27 +1,49 @@
 # claude-switchboard
 
+```
+╭──────────────────────────────────────╮
+│                                      │
+│  (o)───╮                ╭───────(o)  │
+│        │                │            │
+│        ╰────────────────│───╮        │
+│                         │   │        │
+│            ╭────────────╯   │        │
+│  (o)─────╮ │                ╰───(o)  │
+│          │ │                         │
+│          │ │                         │
+│          ╰─│──────────────╮          │
+│            │              │          │
+│  (o)───────╯              ╰─────(o)  │
+│                                      │
+╰──────────────────────────────────────╯
+```
+
 A keyboard-driven picker for live Claude Code agents.
 
-Running eight or ten Claude Code sessions at once, one per iTerm window,
-there is no way to tell which ones need attention without clicking through
-every window. `switchboard` lists every live agent on this machine - status,
-name, age, and a one-line summary of what it is doing - and jumps focus to
-the terminal window running the one you pick.
+## What it is
 
-```
-switchboard  sort: status
-●  STATUS   AGE     NAME                                     SUMMARY
-●  idle     3m      Media: keep indexed PNG sub-sizes #818…  Five drafts in ~/Downloads. Each one keeps the palette and…
-●  idle     55m     Clean up worktrees                       245 worktrees. The top-level dir mtimes look unreliable, so…
-●  busy     4h24m   Notes iteration for WordPress 7.2 #800…  Done. Created #81940 - Notes: show an unseen-notes count b…
-○  dead     6h09m   Image block hides Resolution #81902      Done - PR #81938 is merged and the issue is closed.
-enter focus  / filter  s/a/n/d sort  ctrl+x stop  q quit
-```
+`switchboard` lists every Claude Code agent running on this machine - status,
+name, age, and a one-line summary of what it is doing - and jumps focus to the
+terminal window the one you pick is sitting in. It runs in your terminal, or in
+its own app window with a Dock icon and a cmd-tab entry.
+
+## Why
+
+Running eight or ten agents at once, one per iTerm window, there is no way to
+tell which ones need attention without clicking through every one of them. Some
+are waiting on an answer, some are still working, and the only way to find out
+is to go and look at each window in turn.
+
+`switchboard` answers that from one screen - who is idle, what each one last
+said, how long it has been sitting there - and then gets you to the right
+window in a single keystroke.
 
 Unlike transcript browsers, it shows what is running *now*, not what ran
 yesterday. Unlike tmux managers, it sees every agent regardless of how it was
 launched - bare iTerm windows, tmux panes, background and SDK sessions - and
 joins each one to the operating-system window it is sitting in.
+
+![The Switchboard app window listing four live Claude Code agents - one idle, three busy - each with its status dot, age, name, and a one-line summary of what it is doing](assets/screenshot.png)
 
 ## Install
 
@@ -97,6 +119,18 @@ switchboard list --all      # include dead entries and headless SDK sessions
 switchboard where <agent>   # which window is the agent in?
 switchboard focus <agent>   # jump to it
 switchboard focus <agent> --dry-run   # print the commands instead
+```
+
+A bare `switchboard` opens the picker itself:
+
+```
+switchboard  sort: status
+●  STATUS   AGE     NAME                                     SUMMARY
+●  idle     3m      Media: keep indexed PNG sub-sizes #818…  Five drafts in ~/Downloads. Each one keeps the palette and…
+●  idle     55m     Clean up worktrees                       245 worktrees. The top-level dir mtimes look unreliable, so…
+●  busy     4h24m   Notes iteration for WordPress 7.2 #800…  Done. Created #81940 - Notes: show an unseen-notes count b…
+○  dead     6h09m   Image block hides Resolution #81902      Done - PR #81938 is merged and the issue is closed.
+enter focus  / filter  s/a/n/d sort  ctrl+x stop  q quit
 ```
 
 `<agent>` matches on name, PID, or session id; a unique substring is enough.
