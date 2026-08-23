@@ -101,6 +101,36 @@ switchboard focus <agent> --dry-run   # print the commands instead
 
 `<agent>` matches on name, PID, or session id; a unique substring is enough.
 
+### Standalone app window
+
+Running the picker inside iTerm has a drawback: after it focuses another
+window, getting *back* to the picker means finding the right tab again.
+`switchboard app` opens the same picker in its own native window instead,
+with its own Dock icon and cmd-tab entry:
+
+```sh
+switchboard app
+```
+
+To install it as a regular macOS application (`~/Applications/Switchboard.app`,
+launchable from Spotlight and Launchpad):
+
+```sh
+scripts/make-app.sh
+open ~/Applications/Switchboard.app
+```
+
+The window is a WKWebView running a vendored copy of
+[xterm.js](https://xtermjs.org/), with the unchanged terminal picker attached
+behind it on a pty - same keys, same behavior, zero extra runtimes to
+install. The first focus from the app triggers a one-time macOS Automation
+permission prompt for controlling iTerm, attributed to Switchboard rather
+than to your terminal. Quitting the picker with `q` closes the window, and
+closing the window stops the picker.
+
+`switchboard app` needs a cgo build (the default on macOS); cross-compiled
+`CGO_ENABLED=0` release binaries print an explanatory error instead.
+
 In the picker: arrows or `j`/`k` move, `/` filters incrementally across name,
 directory, and summary, `s`/`a`/`n`/`d` sort by status, age, name, or
 directory, `enter` focuses the selection, `ctrl+x` (then `y`) stops an agent
