@@ -177,8 +177,8 @@ func DefaultDir() (string, error) {
 // Focusable reports whether the agent runs in a terminal the picker can
 // switch to. SDK sessions (entrypoint "sdk-cli", "sdk-py", ...) run headless
 // with no controlling terminal, so listing them offers a destination that
-// cannot be reached. An agent that records no entrypoint is assumed
-// focusable: an unknown shape should degrade to showing more, not less.
+// cannot be reached. Every other entrypoint is assumed focusable, recorded
+// or not: an unknown shape should degrade to showing more, not less.
 func (a Agent) Focusable() bool {
-	return a.Entrypoint == "" || a.Entrypoint == "cli"
+	return !strings.HasPrefix(a.Entrypoint, "sdk-")
 }

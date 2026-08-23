@@ -157,7 +157,8 @@ func TestFocusableExcludesSDKSessions(t *testing.T) {
 		want       bool
 	}{
 		{"cli", true},
-		{"", true}, // unknown shape: show it rather than hide it
+		{"", true},        // unknown shape: show it rather than hide it
+		{"desktop", true}, // a front-end we do not know about is still a terminal
 		{"sdk-cli", false},
 		{"sdk-py", false},
 	}
