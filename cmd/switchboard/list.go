@@ -10,6 +10,7 @@ import (
 	"github.com/adamsilverstein/claude-switchboard/internal/activity"
 	"github.com/adamsilverstein/claude-switchboard/internal/locate"
 	"github.com/adamsilverstein/claude-switchboard/internal/registry"
+	"github.com/adamsilverstein/claude-switchboard/internal/target"
 	"github.com/adamsilverstein/claude-switchboard/internal/ui"
 )
 
@@ -39,9 +40,45 @@ func scanAgents() ([]registry.Agent, error) {
 	return agents, nil
 }
 
+// onScreen drops agents that are running but displayed nowhere: headless SDK
+// sessions, which have no controlling terminal, and agents inside a detached
+// tmux session, whose panes exist but are on no one's screen. Both are real
+// processes the picker cannot take you to, so a row for either offers a
+// destination that does not exist. The tmux query is skipped unless some
+// agent claims to be inside tmux, and a failed query means "unknown", which
+// keeps the agent listed rather than hiding it.
+func onScreen(r target.Runner, agents []registry.Agent) []registry.Agent {
+	attached, tmuxErr := map[string]bool{}, error(nil)
+	if anyTmux(agents) {
+		attached, tmuxErr = target.AttachedTmuxSessions(r)
+	}
+	kept := make([]registry.Agent, 0, len(agents))
+	for _, a := range agents {
+		if !a.Focusable() {
+			continue
+		}
+		if a.Tmux != "" && tmuxErr == nil {
+			if ref, ok := target.ParseTmuxRef(a.Tmux); ok && !attached[ref.Session] {
+				continue
+			}
+		}
+		kept = append(kept, a)
+	}
+	return kept
+}
+
+func anyTmux(agents []registry.Agent) bool {
+	for _, a := range agents {
+		if a.Tmux != "" {
+			return true
+		}
+	}
+	return false
+}
+
 func runList(args []string) error {
 	fs := flag.NewFlagSet("list", flag.ContinueOnError)
-	all := fs.Bool("all", false, "include dead entries and headless SDK sessions")
+	all := fs.Bool("all", false, "include dead entries and agents with no terminal on screen")
 	summary := fs.Bool("summary", false, "include a one-line summary from each agent's transcript")
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -49,6 +86,9 @@ func runList(args []string) error {
 	agents, err := scanAgents()
 	if err != nil {
 		return err
+	}
+	if !*all {
+		agents = onScreen(target.ExecRunner{}, agents)
 	}
 	projectsDir, err := activity.DefaultProjectsDir()
 	if err != nil {
@@ -63,7 +103,7 @@ func runList(args []string) error {
 	fmt.Fprintln(w, header)
 	now := time.Now()
 	for _, a := range agents {
-		if (!a.Live || !a.Focusable()) && !*all {
+		if !a.Live && !*all {
 			continue
 		}
 		status := a.Status

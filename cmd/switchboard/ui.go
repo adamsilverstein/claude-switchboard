@@ -24,13 +24,9 @@ func runUI() error {
 		if err != nil {
 			return nil, err
 		}
+		agents = onScreen(target.ExecRunner{}, agents)
 		rows := make([]ui.Row, 0, len(agents))
 		for _, a := range agents {
-			// Headless SDK sessions have no terminal to switch to, so
-			// the picker has nothing to offer for them.
-			if !a.Focusable() {
-				continue
-			}
 			act := activity.For(projectsDir, a.Cwd, a.SessionID)
 			age := statusTime(a)
 			if age.IsZero() {
