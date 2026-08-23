@@ -16,13 +16,15 @@ APP="$DEST/Switchboard.app"
 
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 
-go build -o "$APP/Contents/MacOS/switchboard" ./cmd/switchboard
+# The binary cannot be named "switchboard" here: the default APFS volume is
+# case-insensitive, so it would collide with the "Switchboard" launcher.
+go build -o "$APP/Contents/MacOS/switchboard-bin" ./cmd/switchboard
 
 # Info.plist cannot pass arguments to the executable, so the bundle entry
 # point is a two-line launcher that runs the binary in app mode.
 cat > "$APP/Contents/MacOS/Switchboard" <<'EOF'
 #!/bin/sh
-exec "$(dirname "$0")/switchboard" app
+exec "$(dirname "$0")/switchboard-bin" app
 EOF
 chmod +x "$APP/Contents/MacOS/Switchboard"
 
