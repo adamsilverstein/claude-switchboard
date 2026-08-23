@@ -131,6 +131,13 @@ closing the window stops the picker.
 `switchboard app` needs a cgo build (the default on macOS); cross-compiled
 `CGO_ENABLED=0` release binaries print an explanatory error instead.
 
+The bundle carries its own icon - a patch panel whose three cords use the same
+colours the picker gives an agent: green for busy, yellow for idle, red for
+waiting on you. The artwork lives in [`assets/icon.svg`](assets/icon.svg) and
+`scripts/make-app.sh` installs the pre-built `assets/AppIcon.icns`. After
+editing the SVG, regenerate the `.icns` with `scripts/make-icon.sh` (it needs
+`rsvg-convert` or a Chromium-based browser to rasterize).
+
 In the picker: arrows or `j`/`k` move, `/` filters incrementally across name,
 directory, and summary, `s`/`a`/`n`/`d` sort by status, age, name, or
 directory, `enter` focuses the selection, `ctrl+x` (then `y`) stops an agent
