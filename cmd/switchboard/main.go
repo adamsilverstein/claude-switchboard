@@ -19,6 +19,8 @@ func run(args []string) error {
 		return runUI()
 	}
 	switch args[0] {
+	case "app":
+		return runApp(args[1:])
 	case "list":
 		return runList(args[1:])
 	case "where":
@@ -40,6 +42,7 @@ func usage() {
 With no command, opens the interactive picker.
 
 Commands:
+  app                        open the picker in its own app window
   list [--all] [--summary]   print the live agents as a table
   where <agent>              print the window an agent is running in
   focus <agent> [--dry-run]  jump focus to an agent's window
