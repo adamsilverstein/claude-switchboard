@@ -38,20 +38,12 @@ is to go and look at each window in turn.
 said, how long it has been sitting there - and then gets you to the right
 window in a single keystroke.
 
-```
-switchboard  sort: status
-●  STATUS   AGE     NAME                                     SUMMARY
-●  idle     3m      Media: keep indexed PNG sub-sizes #818…  Five drafts in ~/Downloads. Each one keeps the palette and…
-●  idle     55m     Clean up worktrees                       245 worktrees. The top-level dir mtimes look unreliable, so…
-●  busy     4h24m   Notes iteration for WordPress 7.2 #800…  Done. Created #81940 - Notes: show an unseen-notes count b…
-○  dead     6h09m   Image block hides Resolution #81902      Done - PR #81938 is merged and the issue is closed.
-enter focus  / filter  s/a/n/d sort  ctrl+x stop  q quit
-```
-
 Unlike transcript browsers, it shows what is running *now*, not what ran
 yesterday. Unlike tmux managers, it sees every agent regardless of how it was
 launched - bare iTerm windows, tmux panes, background and SDK sessions - and
 joins each one to the operating-system window it is sitting in.
+
+![The Switchboard app window listing four live Claude Code agents - one idle, three busy - each with its status dot, age, name, and a one-line summary of what it is doing](assets/screenshot.png)
 
 ## Install
 
@@ -127,6 +119,18 @@ switchboard list --all      # include dead entries and headless SDK sessions
 switchboard where <agent>   # which window is the agent in?
 switchboard focus <agent>   # jump to it
 switchboard focus <agent> --dry-run   # print the commands instead
+```
+
+A bare `switchboard` opens the picker itself:
+
+```
+switchboard  sort: status
+●  STATUS   AGE     NAME                                     SUMMARY
+●  idle     3m      Media: keep indexed PNG sub-sizes #818…  Five drafts in ~/Downloads. Each one keeps the palette and…
+●  idle     55m     Clean up worktrees                       245 worktrees. The top-level dir mtimes look unreliable, so…
+●  busy     4h24m   Notes iteration for WordPress 7.2 #800…  Done. Created #81940 - Notes: show an unseen-notes count b…
+○  dead     6h09m   Image block hides Resolution #81902      Done - PR #81938 is merged and the issue is closed.
+enter focus  / filter  s/a/n/d sort  ctrl+x stop  q quit
 ```
 
 `<agent>` matches on name, PID, or session id; a unique substring is enough.
