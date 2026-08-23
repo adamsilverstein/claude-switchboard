@@ -93,7 +93,7 @@ Privacy & Security -> Automation.
 switchboard                 # interactive picker
 switchboard list            # plain table of live agents
 switchboard list --summary  # ...with a one-line summary per agent
-switchboard list --all      # include dead registry entries
+switchboard list --all      # include dead entries and headless SDK sessions
 switchboard where <agent>   # which window is the agent in?
 switchboard focus <agent>   # jump to it
 switchboard focus <agent> --dry-run   # print the commands instead

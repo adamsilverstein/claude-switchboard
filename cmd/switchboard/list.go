@@ -41,7 +41,7 @@ func scanAgents() ([]registry.Agent, error) {
 
 func runList(args []string) error {
 	fs := flag.NewFlagSet("list", flag.ContinueOnError)
-	all := fs.Bool("all", false, "include dead registry entries")
+	all := fs.Bool("all", false, "include dead entries and headless SDK sessions")
 	summary := fs.Bool("summary", false, "include a one-line summary from each agent's transcript")
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -63,7 +63,7 @@ func runList(args []string) error {
 	fmt.Fprintln(w, header)
 	now := time.Now()
 	for _, a := range agents {
-		if !a.Live && !*all {
+		if (!a.Live || !a.Focusable()) && !*all {
 			continue
 		}
 		status := a.Status
