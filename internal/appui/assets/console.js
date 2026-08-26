@@ -683,9 +683,16 @@ window.__snapshot = (json) => {
   if (s.generation < state.generation) return;
   state.generation = s.generation;
   state.snap = s;
-  if (!state.cursor && s.agents.length) {
-    state.cursor = { pid: s.agents[0].pid, sessionId: s.agents[0].sessionId };
-  }
+  // Reconcile the cursor with the frame that just arrived. It can be
+  // holding an agent that has since exited, or one the filter no longer
+  // shows, and selected() already falls back to the top of the list - but
+  // if the two disagree, the row drawn as selected is not the row the
+  // arrow keys move from, and the first keypress goes nowhere.
+  //
+  // A frame with no rows at all is left alone: a filter that matches
+  // nothing for a keystroke should not cost you your place.
+  const cur = selected();
+  if (cur) state.cursor = { pid: cur.pid, sessionId: cur.sessionId };
   render();
 };
 window.__notice = (text, alert) => notice(text, alert);
