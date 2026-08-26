@@ -103,10 +103,11 @@ var (
 		"Restructuring the README — top section first.",
 		"Green. Smoke test confirms cmd-q closes the window.",
 		"Done — PR #81938 merged, issue closed.",
+		"Everything is now verified locally. Final state on [#76767](https://github.com/WordPress/gutenberg/pull/76767) — 8 commits, `f1f9816` → `d8018c7`: | # | Finding | Fix | Proven red first | |---|---|---|---| | 1 | Reactions mutable via inherited update route | `update_item_permissions_check()` rejects reactions (403) | 3/4 tests fail without it |",
 	}
 	statuses = []string{"idle", "busy", "busy", "idle", "idle", "busy", "shell", "idle"}
 	repos    = []string{"gutenberg", "add-notes-emoji-reactions-picker", "switchboard", "media-experiments"}
-	branches = []string{"trunk", "main", "trunk", "feature/x"}
+	branches = []string{"trunk", "add-notes-emoji-reactions-try-additional-comment-type", "trunk", "feature/x"}
 	models   = []string{"Opus 5", "Opus 5", "Sonnet 4.6", "Sonnet 4.6", "Opus 5"}
 	windows  = []int{1_000_000, 1_000_000, 200_000, 200_000, 1_000_000}
 	used     = []int{158_000, 620_000, 176_000, 62_000, 310_000}

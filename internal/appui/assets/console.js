@@ -215,9 +215,10 @@ function facets(blockId, listId, rows, keyOf, noteOf) {
     const b = el("button", "facet");
     b.type = "button";
     b.setAttribute("aria-pressed", String(active === k));
-    b.title = k;
+    b.title = g.note ? k + " " + g.note : k;
     b.append(el("b", null, k));
-    b.append(el("span", null, (g.note ? g.note + " · " : "") + g.n));
+    if (g.note) b.append(el("i", null, g.note));
+    b.append(el("span", null, String(g.n)));
     b.onclick = () => setFilter(active === k ? "" : k);
     list.append(b);
   }

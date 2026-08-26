@@ -156,7 +156,6 @@ html, body {
 .facet {
   display: flex;
   align-items: baseline;
-  justify-content: space-between;
   gap: 8px;
   padding: 0;
   border: 0;
@@ -165,12 +164,22 @@ html, body {
   font-size: 11.5px;
   color: var(--secondary);
   text-align: left;
+  overflow: hidden;
 }
-.facet { overflow: hidden; }
-/* min-width: 0 so a long repository name gives way to its count rather than
- * shoving it out of the sidebar. */
-.facet > b { min-width: 0; font-weight: inherit; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.facet > span { color: var(--muted); flex: none; white-space: nowrap; }
+/* Three parts, and only the count keeps its width. Branch names run long -
+ * "add-notes-emoji-reactions-try-additional-comment-type" is a real one - so
+ * the branch gives way first, then the repository name, and the count is
+ * always there to be read. */
+.facet > b,
+.facet > i {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.facet > b { flex: 0 1 auto; font-weight: inherit; }
+.facet > i { flex: 0 2 auto; font-style: normal; color: var(--muted); }
+.facet > span { margin-left: auto; padding-left: 8px; color: var(--muted); flex: none; white-space: nowrap; }
 .facet[aria-pressed="true"] { color: var(--accent-ink); font-weight: 500; }
 
 .meter { display: flex; flex-direction: column; gap: 10px; padding: 13px 12px; border: 1px solid var(--rule-frame); }
@@ -358,7 +367,16 @@ html, body {
 #cells { display: grid; grid-auto-columns: minmax(0, 1fr); grid-auto-flow: column; border: 1px solid var(--rule-frame); }
 .cell { display: flex; flex-direction: column; gap: 9px; padding: 15px 16px; border-left: 1px solid var(--rule-row); min-width: 0; }
 .cell:first-child { border-left: 0; }
-.cell .line { font-family: var(--mono); font-size: 12px; color: var(--text); }
+/* One line each, truncated. A branch name long enough to wrap would push
+ * the whole readout taller, which is height the list is owed. */
+.cell .line {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .cell .line.soft { color: var(--muted); }
 .cell .note { font-family: var(--mono); font-size: 10.5px; color: var(--muted); }
 .cell .big { display: flex; align-items: baseline; gap: 8px; }
@@ -378,7 +396,21 @@ html, body {
 }
 .branch { color: var(--accent-ink); }
 
-#last { padding: 13px 15px; border: 1px solid var(--rule-row); background: var(--panel); font-size: 13.5px; line-height: 1.55; color: var(--secondary); }
+/* The last message is whatever the agent said, which can be several hundred
+ * characters of markdown. Three lines of it is a reminder of where the
+ * session got to; the rest is in the terminal this window points at. */
+#last {
+  padding: 13px 15px;
+  border: 1px solid var(--rule-row);
+  background: var(--panel);
+  font-size: 13.5px;
+  line-height: 1.55;
+  color: var(--secondary);
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+}
 
 #actions { display: flex; align-items: center; gap: 12px; }
 #actions button {
