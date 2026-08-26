@@ -48,9 +48,25 @@ func runApp(args []string) error {
 	// frames before that are dropped rather than queued: a snapshot is a
 	// whole picture of now, and a stale one is worth nothing.
 	var (
-		mu    sync.Mutex
-		ready bool
+		mu     sync.Mutex
+		ready  bool
+		closed bool
 	)
+
+	// dispatch is the only way anything off the UI thread reaches the
+	// window, and it holds the lock across the call. Quitting closes the
+	// webview and frees it, and the poll goroutine can easily be a scan
+	// deep in the middle of an iteration when that happens: dispatching
+	// to a destroyed webview is a use-after-free, not a no-op. Taking the
+	// lock to mark it closed cannot overtake a dispatch already under way.
+	dispatch := func(f func()) {
+		mu.Lock()
+		defer mu.Unlock()
+		if closed {
+			return
+		}
+		w.Dispatch(f)
+	}
 	push := func(s appui.Snapshot) {
 		raw, err := json.Marshal(s)
 		if err != nil {
@@ -60,14 +76,14 @@ func runApp(args []string) error {
 		if err != nil {
 			return
 		}
-		w.Dispatch(func() { w.Eval("window.__snapshot && window.__snapshot(" + string(arg) + ")") })
+		dispatch(func() { w.Eval("window.__snapshot && window.__snapshot(" + string(arg) + ")") })
 	}
 	notice := func(text string, alert bool) {
 		msg, err := json.Marshal(text)
 		if err != nil {
 			return
 		}
-		w.Dispatch(func() {
+		dispatch(func() {
 			w.Eval(fmt.Sprintf("window.__notice && window.__notice(%s, %t)", msg, alert))
 		})
 	}
@@ -123,6 +139,12 @@ func runApp(args []string) error {
 
 	w.SetHtml(appui.Page())
 	w.Run()
+
+	// Run has returned, so the window has gone and the deferred Destroy
+	// is next. Shut the door before it does, then stop the poll.
+	mu.Lock()
+	closed = true
+	mu.Unlock()
 	close(done)
 	return nil
 }
