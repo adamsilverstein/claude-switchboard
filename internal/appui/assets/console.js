@@ -209,13 +209,20 @@ function renderSidebar(s) {
 
 // facets builds a sidebar filter list, and hides the whole block when the
 // field it groups by has no source on this machine.
+//
+// The note beside a group is only shown when the whole group agrees on it.
+// Three agents in one repository on three branches have no one branch, and
+// naming the first one's asserts something about the other two that is not
+// true.
 function facets(blockId, listId, rows, keyOf, noteOf) {
   const groups = new Map();
   for (const a of rows) {
     const k = keyOf(a);
     if (!k) continue;
     if (!groups.has(k)) groups.set(k, { n: 0, note: noteOf(a) });
-    groups.get(k).n++;
+    const g = groups.get(k);
+    g.n++;
+    if (g.note !== noteOf(a)) g.note = "";
   }
   const block = $(blockId);
   block.hidden = groups.size === 0;
