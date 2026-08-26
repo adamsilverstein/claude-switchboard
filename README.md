@@ -181,6 +181,36 @@ repeats across most rows, and the summary is what tells agents apart - but it
 is still filtered and sorted on. Dead agents stay listed greyed out so you
 can see what just finished; they sort last under every key.
 
+### Session telemetry (optional)
+
+Three of the numbers the app window can show - the display name of the model,
+the size of its context window, and how much of your rate limit is spent -
+exist nowhere on disk. Claude Code pipes them into whatever command you have
+configured as your `statusLine`, and forgets them. Switchboard is a separate
+process and never sees that pipe.
+
+If you want those numbers, chain switchboard in front of your statusline. It
+copies the payload to `~/.claude/switchboard/statusline/<sessionId>.json` on
+its way past and runs what you had before, unchanged:
+
+```jsonc
+// ~/.claude/settings.json
+"statusLine": {
+  "type": "command",
+  "command": "switchboard statusline -- my-existing-statusline"
+}
+```
+
+With nothing to wrap, `switchboard statusline` on its own is a valid (empty)
+statusline that still records the payload.
+
+This is entirely optional. Sessions without it keep every other column; the
+context percentage and the usage meter are omitted rather than shown blank.
+The shim never fails: an unreadable payload is dropped and your statusline
+still renders, because losing telemetry for one session is a much smaller
+problem than replacing your prompt with an error message. Files for sessions
+untouched for a month are swept up automatically.
+
 ## How it works
 
 Every running Claude Code session registers itself in `~/.claude/sessions/`.

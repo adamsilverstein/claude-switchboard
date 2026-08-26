@@ -27,6 +27,8 @@ func run(args []string) error {
 		return runWhere(args[1:])
 	case "focus":
 		return runFocus(args[1:])
+	case "statusline":
+		return runStatusline(args[1:])
 	case "help", "-h", "--help":
 		usage()
 		return nil
@@ -46,6 +48,7 @@ Commands:
   list [--all] [--summary]   print the live agents as a table
   where <agent>              print the window an agent is running in
   focus <agent> [--dry-run]  jump focus to an agent's window
+  statusline -- <command>    Claude Code statusLine shim; see README
   help                       show this help
 
 <agent> matches on name, PID, or session id; a unique substring is enough.
