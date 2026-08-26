@@ -116,12 +116,18 @@ function selected() {
   return found || rows[0] || null;
 }
 
-// visibleRows is what the cursor can land on: rows inside a collapsed group
-// are still listed and still sorted, but skipping them is what makes a
-// collapse worth having.
+// visibleRows is what the cursor can land on, in the order the screen shows
+// it. It walks the same bands renderList draws, so the arrow keys move down
+// the list the way the eye reads it whatever the sort is and whatever is
+// grouped - the order is decided once, in bands, rather than agreed on
+// twice. Rows inside a collapsed group are still listed and still sorted,
+// but skipping them is what makes a collapse worth having.
 function visibleRows() {
-  if (!state.snap || !state.snap.grouped) return agents();
-  return agents().filter((a) => !state.collapsed.has(a.status));
+  const rows = agents();
+  if (!state.snap || !state.snap.grouped) return rows;
+  return bands(rows)
+    .filter(([status]) => !state.collapsed.has(status))
+    .flatMap(([, group]) => group);
 }
 
 function moveCursor(delta) {
@@ -307,9 +313,12 @@ function renderList(s) {
 }
 
 // bands splits the rows into the blocks the list draws, in the order Go put
-// them in. A status the design did not name still gets a band; an
-// unrecognised status must never make an agent invisible, and Go ranks it
-// behind every named live status and ahead of the ended rows.
+// them in. It is the only place that decides an order, because the screen
+// and the keyboard reading two of them is exactly how they came apart.
+//
+// A status the design did not name still gets a band; an unrecognised status
+// must never make an agent invisible, and Go ranks it behind every named
+// live status and ahead of the ended rows.
 function bands(rows) {
   const out = [];
   const band = (status, group) => { if (group.length) out.push([status, group]); };

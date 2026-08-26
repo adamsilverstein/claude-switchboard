@@ -233,3 +233,60 @@ func TestTheListIsTheOffsetParentTheScrollingAssumes(t *testing.T) {
 		t.Error("scrollCursorIntoView no longer reads row.offsetTop; this test and the rule above it are stale")
 	}
 }
+
+// The arrow keys have to walk the rows the way the screen shows them, top to
+// bottom, whatever the sort is and whatever is grouped or collapsed. That
+// holds because one function decides the order: renderList draws the bands
+// it returns and visibleRows walks the same ones. Two places deciding an
+// order is exactly how the screen and the keyboard came apart before, so
+// what is checked here is that there is still only one.
+func TestOnlyOneFunctionOrdersTheList(t *testing.T) {
+	js := string(mustRead("assets/console.js"))
+	for _, name := range []string{"renderList", "visibleRows"} {
+		if !strings.Contains(jsFunc(t, js, name), "bands(") {
+			t.Errorf("%s does not take its order from bands(); the screen and the cursor can disagree", name)
+		}
+	}
+
+	// Every mention of the band order outside its own declaration belongs
+	// to bands. Anything else is a second opinion about the order.
+	body := jsFunc(t, js, "bands")
+	for _, line := range strings.Split(js, "\n") {
+		if !strings.Contains(line, "STATUS_ORDER") {
+			continue
+		}
+		if strings.HasPrefix(strings.TrimSpace(line), "const STATUS_ORDER") || strings.Contains(body, line) {
+			continue
+		}
+		t.Errorf("STATUS_ORDER is read outside bands, so the list has a second order:\n\t%s",
+			strings.TrimSpace(line))
+	}
+}
+
+// jsFunc returns the body of a top-level function in the page's script,
+// braces matched. The assets have no build step and no module system, so
+// reading them as text is the only way to check anything about them.
+func jsFunc(t *testing.T, js, name string) string {
+	t.Helper()
+	i := strings.Index(js, "\nfunction "+name+"(")
+	if i < 0 {
+		t.Fatalf("no function %s in console.js", name)
+	}
+	open := strings.Index(js[i:], "{")
+	if open < 0 {
+		t.Fatalf("function %s has no body", name)
+	}
+	depth := 0
+	for j := i + open; j < len(js); j++ {
+		switch js[j] {
+		case '{':
+			depth++
+		case '}':
+			if depth--; depth == 0 {
+				return js[i+open : j+1]
+			}
+		}
+	}
+	t.Fatalf("function %s is never closed", name)
+	return ""
+}
