@@ -198,7 +198,7 @@ function renderSidebar(s) {
     q.append(b);
   }
 
-  facets("repos", "repolist", s.agents, (a) => a.repo, (a) => (a.branch ? a.branch + (a.dirty ? "*" : "") : ""));
+  facets("repos", "repolist", s.agents, (a) => a.repo, (a) => a.branch || "");
   facets("models", "modellist", s.agents, (a) => a.model, () => "");
 
   meter("usage7d", s.account.usage7dPct, s.account.usage7dResetsIn ? "resets in " + s.account.usage7dResetsIn : "");
@@ -213,7 +213,8 @@ function renderSidebar(s) {
 // The note beside a group is only shown when the whole group agrees on it.
 // Three agents in one repository on three branches have no one branch, and
 // naming the first one's asserts something about the other two that is not
-// true.
+// true. The dirty marker is left off for the same reason and stays on the
+// rows, where it says which checkout it means.
 function facets(blockId, listId, rows, keyOf, noteOf) {
   const groups = new Map();
   for (const a of rows) {
