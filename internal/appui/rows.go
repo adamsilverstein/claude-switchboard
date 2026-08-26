@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/adamsilverstein/claude-switchboard/internal/activity"
+	"github.com/adamsilverstein/claude-switchboard/internal/forge"
 	"github.com/adamsilverstein/claude-switchboard/internal/git"
 	"github.com/adamsilverstein/claude-switchboard/internal/registry"
 	"github.com/adamsilverstein/claude-switchboard/internal/statusline"
@@ -14,9 +15,10 @@ import (
 // shows. It exists so the enrichment is testable without a home directory
 // full of transcripts: every source it reads from is a field.
 type Builder struct {
-	ProjectsDir   string     // ~/.claude/projects
-	StatuslineDir string     // ~/.claude/switchboard/statusline
-	Git           *git.Cache // may be nil, in which case no repository info
+	ProjectsDir   string       // ~/.claude/projects
+	StatuslineDir string       // ~/.claude/switchboard/statusline
+	Git           *git.Cache   // may be nil, in which case no repository info
+	Forge         *forge.Cache // may be nil, in which case no pull requests
 }
 
 // Rows enriches agents with everything the app window can learn about them.
@@ -73,6 +75,18 @@ func (b Builder) telemetry(a registry.Agent, act activity.Activity, tty string) 
 	if b.Git != nil {
 		info := b.Git.Info(a.Cwd)
 		t.Repo, t.Dirty = info.Repo, info.Dirty
+		// git's answer wins where it has one. The transcript's branch
+		// is only a fallback for the first poll or two, before the
+		// cache has resolved the directory.
+		if info.Branch != "" {
+			t.Branch = info.Branch
+		}
+	}
+	// Which pull request the branch belongs to is the one thing here that
+	// costs a network round trip, so it is asked last, of a cache that
+	// answers from memory and refreshes behind us.
+	if b.Forge != nil {
+		t.Ref = b.Forge.Ref(a.Cwd, t.Branch)
 	}
 	// The shim, when installed, knows things the transcript cannot: the
 	// display name Claude Code itself uses, and - the load-bearing one -

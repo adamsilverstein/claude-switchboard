@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/adamsilverstein/claude-switchboard/internal/activity"
+	"github.com/adamsilverstein/claude-switchboard/internal/forge"
 	"github.com/adamsilverstein/claude-switchboard/internal/registry"
 	"github.com/adamsilverstein/claude-switchboard/internal/ui"
 )
@@ -24,6 +25,10 @@ func rows() []ui.Row {
 				Model: "Opus 5", ContextWindow: 1_000_000, ContextTokens: 158_000,
 				Repo: "gutenberg", Branch: "trunk", Dirty: true, Waiting: true,
 				PermissionMode: "auto", Elapsed: 4*time.Hour + 42*time.Minute, TTY: "/dev/ttys014",
+				Ref: forge.Ref{
+					Number: 13, Kind: "pr", State: "open", Title: "Console redesign",
+					URL: "https://github.com/adamsilverstein/claude-switchboard/pull/13", Known: true,
+				},
 			},
 		},
 		{
@@ -77,6 +82,35 @@ func TestSnapshotFormatsARow(t *testing.T) {
 	if !v.Focusable {
 		t.Error("a live cli agent with a tty should be focusable")
 	}
+	if v.Ref != "#13" || v.RefKind != "pr" || v.RefState != "open" {
+		t.Errorf("ref = %q %q %q, want #13 pr open", v.Ref, v.RefKind, v.RefState)
+	}
+	if v.RefURL != "https://github.com/adamsilverstein/claude-switchboard/pull/13" {
+		t.Errorf("refUrl = %q", v.RefURL)
+	}
+}
+
+// The page may only ask for a pull request or issue that gh resolved. It is
+// the one command that carries a string straight to a subprocess, so the
+// shape it accepts is exactly the shape gh produces and nothing else.
+func TestOpenOnlyAcceptsAGitHubURL(t *testing.T) {
+	c := loaded(t)
+	ok := c.Handle(`{"cmd":"open","url":"https://github.com/a/b/pull/13"}`)
+	if ok.Kind != "open" || ok.URL != "https://github.com/a/b/pull/13" {
+		t.Errorf("open = %+v, want the URL passed through", ok)
+	}
+	for _, raw := range []string{
+		`{"cmd":"open"}`,
+		`{"cmd":"open","url":"http://github.com/a/b/pull/13"}`,
+		`{"cmd":"open","url":"https://githubXcom/a/b"}`,
+		`{"cmd":"open","url":"file:///etc/passwd"}`,
+		`{"cmd":"open","url":"-a/Calculator"}`,
+		`{"cmd":"open","url":"https://github.com/a/b pull/13"}`,
+	} {
+		if act := c.Handle(raw); act.Kind != "" {
+			t.Errorf("%s = %+v, want it refused", raw, act)
+		}
+	}
 }
 
 // The contract the whole design rests on: a field with no source is absent,
@@ -94,7 +128,10 @@ func TestMissingTelemetryIsNullNotZero(t *testing.T) {
 	if v, ok := got["contextPct"]; !ok || v != nil {
 		t.Errorf("contextPct = %v, want an explicit null", v)
 	}
-	for _, key := range []string{"model", "repo", "branch", "elapsed", "contextLabel", "permissionMode"} {
+	for _, key := range []string{
+		"model", "repo", "branch", "elapsed", "contextLabel", "permissionMode",
+		"ref", "refKind", "refState", "refTitle", "refUrl",
+	} {
 		if v, ok := got[key]; ok {
 			t.Errorf("%s = %v, want the key omitted entirely", key, v)
 		}

@@ -83,6 +83,16 @@ type AgentView struct {
 	Dirty          bool   `json:"dirty"`
 	Elapsed        string `json:"elapsed,omitempty"`
 
+	// Ref is the pull request or issue the branch belongs to. Empty
+	// means there is none to show - either the branch has no pull
+	// request, or gh could not be asked - and the column collapses
+	// rather than printing a dash on every row.
+	Ref      string `json:"ref,omitempty"`      // "#13"
+	RefKind  string `json:"refKind,omitempty"`  // "pr" or "issue"
+	RefState string `json:"refState,omitempty"` // "open", "draft", "merged", "closed"
+	RefTitle string `json:"refTitle,omitempty"`
+	RefURL   string `json:"refUrl,omitempty"`
+
 	TTY       string `json:"tty,omitempty"`
 	Tmux      string `json:"tmux,omitempty"`
 	Focusable bool   `json:"focusable"`
@@ -109,6 +119,11 @@ func view(now time.Time, r ui.Row) AgentView {
 		TTY:            shortTTY(t.TTY),
 		Tmux:           r.Agent.Tmux,
 		Focusable:      r.Agent.Focusable() && r.Agent.Live,
+		Ref:            t.Ref.Label(),
+		RefKind:        t.Ref.Kind,
+		RefState:       t.Ref.State,
+		RefTitle:       t.Ref.Title,
+		RefURL:         t.Ref.URL,
 	}
 	if t.ContextWindow > 0 {
 		v.ContextWindow = FormatTokens(t.ContextWindow)

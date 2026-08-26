@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -227,6 +228,13 @@ func (c *Controller) Find(pid int, session string) (registry.Agent, bool) {
 	return registry.Agent{}, false
 }
 
+// OpenableURL reports whether a URL from the page may be handed to the
+// browser. The page only ever asks for a pull request or issue that gh
+// resolved, so the allowed shape is exactly that and nothing else.
+func OpenableURL(u string) bool {
+	return strings.HasPrefix(u, "https://github.com/") && !strings.ContainsAny(u, " \t\r\n\"'<>")
+}
+
 // Action is what the caller must do once a command from the page has been
 // applied: repaint, and possibly something the controller cannot do itself.
 type Action struct {
@@ -234,11 +242,13 @@ type Action struct {
 	// new frame now, rather than waiting up to a second for the poll.
 	Repaint bool
 
-	// Kind is "focus", "stop", "quit", or "" when the command was fully
-	// handled here. Focus and stop carry the agent they refer to.
+	// Kind is "focus", "stop", "open", "quit", or "" when the command
+	// was fully handled here. Focus and stop carry the agent they refer
+	// to; open carries the URL.
 	Kind      string
 	PID       int
 	SessionID string
+	URL       string
 }
 
 // Handle applies one command from the page.
@@ -262,6 +272,7 @@ func (c *Controller) Handle(raw string) Action {
 		Rows      int    `json:"rows"`
 		PID       int    `json:"pid"`
 		SessionID string `json:"sessionId"`
+		URL       string `json:"url"`
 	}
 	if err := json.Unmarshal([]byte(raw), &m); err != nil {
 		return Action{}
@@ -282,6 +293,15 @@ func (c *Controller) Handle(raw string) Action {
 		return Action{Repaint: c.SetCapacity(m.Rows)}
 	case "focus", "stop":
 		return Action{Kind: m.Cmd, PID: m.PID, SessionID: m.SessionID}
+	case "open":
+		// Only a URL this build produced can be opened. Every one of
+		// them came back from `gh` as a github.com link, so anything
+		// else is either a bug or a transcript that found its way
+		// into a command, and neither should reach `open`.
+		if !OpenableURL(m.URL) {
+			return Action{}
+		}
+		return Action{Kind: "open", URL: m.URL}
 	case "quit":
 		return Action{Kind: "quit"}
 	}

@@ -12,11 +12,12 @@ import (
 // fakeGit scripts git's answers and counts the calls, which is the thing
 // worth asserting on: the cache exists to keep that number small.
 type fakeGit struct {
-	mu    sync.Mutex
-	calls []string
-	top   string
-	dirty string
-	err   error
+	mu     sync.Mutex
+	calls  []string
+	top    string
+	branch string
+	dirty  string
+	err    error
 }
 
 func (f *fakeGit) Run(name string, args ...string) (string, error) {
@@ -29,6 +30,9 @@ func (f *fakeGit) Run(name string, args ...string) (string, error) {
 	for _, a := range args {
 		if a == "--show-toplevel" {
 			return f.top + "\n", nil
+		}
+		if a == "--abbrev-ref" {
+			return f.branch + "\n", nil
 		}
 	}
 	return f.dirty, nil

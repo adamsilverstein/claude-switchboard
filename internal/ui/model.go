@@ -13,6 +13,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/adamsilverstein/claude-switchboard/internal/forge"
 	"github.com/adamsilverstein/claude-switchboard/internal/registry"
 )
 
@@ -39,16 +40,22 @@ type Row struct {
 // unreadable, or whose statusline shim is not installed, carries a zero
 // Telemetry and still lists.
 type Telemetry struct {
-	Model          string        // display name, "Opus 5"; "" when unknown
-	ContextWindow  int           // tokens the model can hold; 0 when unknown
-	ContextTokens  int           // tokens currently held; 0 when unknown
-	PermissionMode string        // "auto", "plan", "default"; "" when unknown
-	Repo           string        // basename of the repository root
-	Branch         string        // current git branch
-	Dirty          bool          // repository has uncommitted changes
-	Elapsed        time.Duration // since the session started; 0 when unknown
-	TTY            string        // "ttys014"
-	WindowDesc     string        // "iTerm window 3", "tmux 2.1", "not focusable"
+	Model          string // display name, "Opus 5"; "" when unknown
+	ContextWindow  int    // tokens the model can hold; 0 when unknown
+	ContextTokens  int    // tokens currently held; 0 when unknown
+	PermissionMode string // "auto", "plan", "default"; "" when unknown
+	Repo           string // basename of the repository root
+	Branch         string // current git branch
+	Dirty          bool   // repository has uncommitted changes
+
+	// Ref is the pull request or issue the branch belongs to, when the
+	// forge could be asked. Zero means either that there is none or that
+	// nobody has looked yet; the view renders both as absent.
+	Ref forge.Ref
+
+	Elapsed    time.Duration // since the session started; 0 when unknown
+	TTY        string        // "ttys014"
+	WindowDesc string        // "iTerm window 3", "tmux 2.1", "not focusable"
 
 	// Waiting is true when the agent looks like it is waiting on you
 	// rather than idling on its own. The registry has no such flag, so
@@ -423,7 +430,8 @@ func (m Model) visible() []Row {
 
 // Filter returns the rows matching q, case-insensitively, across every field
 // worth searching: name, working directory, summary, and - when the caller
-// has filled them in - repository and model. An empty query matches
+// has filled them in - repository, model, and the pull request the branch
+// belongs to, by number or by title. An empty query matches
 // everything. The result is a fresh slice; the input is left alone.
 func Filter(rows []Row, q string) []Row {
 	out := make([]Row, 0, len(rows))
@@ -443,6 +451,8 @@ func (r Row) matches(q string) bool {
 		r.Summary,
 		r.Telemetry.Repo,
 		r.Telemetry.Model,
+		r.Telemetry.Ref.Label(),
+		r.Telemetry.Ref.Title,
 	} {
 		if field != "" && strings.Contains(strings.ToLower(field), q) {
 			return true

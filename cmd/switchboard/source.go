@@ -7,6 +7,7 @@ import (
 
 	"github.com/adamsilverstein/claude-switchboard/internal/activity"
 	"github.com/adamsilverstein/claude-switchboard/internal/appui"
+	"github.com/adamsilverstein/claude-switchboard/internal/forge"
 	"github.com/adamsilverstein/claude-switchboard/internal/git"
 	"github.com/adamsilverstein/claude-switchboard/internal/locate"
 	"github.com/adamsilverstein/claude-switchboard/internal/registry"
@@ -44,9 +45,10 @@ func stopAgent(a registry.Agent) error {
 }
 
 // appSource builds the enriched rows the app window shows. It holds the git
-// cache across polls, which is the whole reason it is a value and not a
-// function: the cache is what keeps eighteen agents across four
-// repositories down to four git invocations every ten seconds.
+// and forge caches across polls, which is the whole reason it is a value and
+// not a function: the caches are what keep eighteen agents across four
+// repositories down to four git invocations every ten seconds, and four gh
+// invocations every two minutes.
 type appSource struct {
 	projectsDir   string
 	statuslineDir string
@@ -70,6 +72,7 @@ func newAppSource() (*appSource, error) {
 			ProjectsDir:   projectsDir,
 			StatuslineDir: statuslineDir,
 			Git:           git.NewCache(git.ExecRunner{}),
+			Forge:         forge.NewCache(forge.ExecRunner{}),
 		},
 	}, nil
 }

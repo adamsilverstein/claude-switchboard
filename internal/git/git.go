@@ -1,7 +1,8 @@
-// Package git answers the two questions the app window asks about a working
-// directory: which repository it belongs to, and whether that repository has
-// uncommitted work in it. Both need a subprocess, and one of them is slow on
-// a large repository, so nothing here ever runs on the caller's goroutine.
+// Package git answers the questions the app window asks about a working
+// directory: which repository it belongs to, which branch is checked out,
+// and whether that repository has uncommitted work in it. All three need a
+// subprocess, and one of them is slow on a large repository, so nothing here
+// ever runs on the caller's goroutine.
 package git
 
 import (
@@ -28,9 +29,10 @@ func (ExecRunner) Run(name string, args ...string) (string, error) {
 
 // Info is what git could say about a directory.
 type Info struct {
-	Repo  string // basename of the repository root; "" outside a repository
-	Dirty bool   // tracked files differ from HEAD
-	Known bool   // a resolution has completed for this directory
+	Repo   string // basename of the repository root; "" outside a repository
+	Branch string // checked-out branch; "" outside a repository or on a detached HEAD
+	Dirty  bool   // tracked files differ from HEAD
+	Known  bool   // a resolution has completed for this directory
 }
 
 // TTL is how long an answer is reused before git is asked again. The dirty
@@ -120,7 +122,7 @@ func (c *Cache) refresh(cwd string) {
 	e.inFlight = false
 }
 
-// resolve asks git the two questions. A directory outside a repository, or a
+// resolve asks git its three questions. A directory outside a repository, or a
 // git that is not installed, yields a Known-but-empty answer: the question
 // has been settled, there is just nothing to show.
 func (c *Cache) resolve(cwd string) Info {
@@ -134,6 +136,17 @@ func (c *Cache) resolve(cwd string) Info {
 		return info
 	}
 	info.Repo = filepath.Base(top)
+
+	// The branch is asked of git rather than taken from the transcript.
+	// A transcript records the branch an agent was on when it last spoke,
+	// which is the wrong answer the moment somebody checks out another
+	// one - and it is the branch that decides which pull request the
+	// column shows. A detached HEAD prints "HEAD", which names nothing.
+	if out, err := c.run.Run("git", "-C", cwd, "rev-parse", "--abbrev-ref", "HEAD"); err == nil {
+		if b := strings.TrimSpace(out); b != "HEAD" {
+			info.Branch = b
+		}
+	}
 
 	// --untracked-files=no on purpose. Untracked files are usually build
 	// output and scratch files, and enumerating them is the expensive part

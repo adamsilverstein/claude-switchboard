@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/adamsilverstein/claude-switchboard/internal/appui"
+	"github.com/adamsilverstein/claude-switchboard/internal/forge"
 	"github.com/adamsilverstein/claude-switchboard/internal/registry"
 	"github.com/adamsilverstein/claude-switchboard/internal/ui"
 )
@@ -112,6 +113,16 @@ var (
 	windows  = []int{1_000_000, 1_000_000, 200_000, 200_000, 1_000_000}
 	used     = []int{158_000, 620_000, 176_000, 62_000, 310_000}
 	modes    = []string{"auto", "plan", "default"}
+	// One of each state, plus a branch with no pull request at all: the
+	// dash is as much a case worth looking at as the number is.
+	refs = []forge.Ref{
+		{Number: 13, Kind: "pr", State: "open", Title: "Replace the app window's terminal with a Console", URL: "https://github.com/adamsilverstein/claude-switchboard/pull/13", Known: true},
+		{Number: 76767, Kind: "pr", State: "draft", Title: "Add emoji reactions to notes", URL: "https://github.com/WordPress/gutenberg/pull/76767", Known: true},
+		{Known: true},
+		{Number: 11, Kind: "issue", State: "open", Title: "Console redesign", URL: "https://github.com/adamsilverstein/claude-switchboard/issues/11", Known: true},
+		{Number: 10, Kind: "pr", State: "merged", Title: "Fix multi-monitor focus", URL: "https://github.com/adamsilverstein/claude-switchboard/pull/10", Known: true},
+		{Number: 81938, Kind: "pr", State: "closed", Title: "Speculative loading defaults", URL: "https://github.com/WordPress/wordpress-develop/pull/81938", Known: true},
+	}
 )
 
 func fixture(n int, bare bool) []ui.Row {
@@ -130,6 +141,7 @@ func fixture(n int, bare bool) []ui.Row {
 			Waiting: i == 0 || i == 5,
 		}
 		if !bare {
+			t.Ref = refs[i%len(refs)]
 			t.Model = models[i%len(models)]
 			t.ContextWindow = windows[i%len(windows)]
 			t.ContextTokens = used[i%len(used)]

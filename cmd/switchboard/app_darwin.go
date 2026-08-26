@@ -5,6 +5,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"os/exec"
 	"sync"
 	"time"
 
@@ -84,6 +85,10 @@ func runApp(args []string) error {
 			}
 		case "quit":
 			w.Dispatch(w.Terminate)
+		case "open":
+			// `open` hands the URL to the default browser and
+			// returns immediately, but it is still a subprocess.
+			go openURL(act.URL, notice)
 		default:
 			// Focus takes AppleScript and stop takes a fresh
 			// liveness check, so both run off the UI thread: the
@@ -134,6 +139,16 @@ const pollInterval = time.Second
 // against a fresh snapshot, because the PID may have been reused since the
 // scan. Matching on both means a click on a row whose agent has since exited
 // finds nothing rather than finding whatever took its number.
+// openURL shows a pull request or issue in the browser. The URL has already
+// been checked by the controller; nothing here builds one from page input.
+func openURL(url string, notice func(string, bool)) {
+	if err := exec.Command("open", url).Run(); err != nil {
+		notice("could not open "+url, true)
+		return
+	}
+	notice("opened "+url, false)
+}
+
 func perform(control *appui.Controller, act appui.Action, notice func(string, bool)) {
 	agent, ok := control.Find(act.PID, act.SessionID)
 	if !ok {
