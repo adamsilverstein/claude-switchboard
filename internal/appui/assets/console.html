@@ -1,0 +1,90 @@
+<div id="app">
+  <aside id="sidebar">
+    <div id="brand">
+      <b>SWITCHBOARD</b>
+      <span id="tally"></span>
+    </div>
+
+    <div class="block">
+      <span class="label">Queue</span>
+      <div id="queue" role="listbox" aria-label="Filter by queue"></div>
+    </div>
+
+    <div class="block" id="repos" hidden>
+      <span class="label">Repositories</span>
+      <div class="block" id="repolist"></div>
+    </div>
+
+    <div class="block" id="models" hidden>
+      <span class="label">Models</span>
+      <div class="block" id="modellist"></div>
+    </div>
+
+    <div class="meter" id="usage7d" hidden>
+      <span class="label">Usage &middot; 7 days</span>
+      <div class="big"><b id="usage7dPct"></b><span>of window</span></div>
+      <div class="bar" id="usage7dBar"><i></i><u></u></div>
+      <span class="note" id="usage7dNote"></span>
+    </div>
+
+    <span id="polled"></span>
+  </aside>
+
+  <main id="main">
+    <div id="toolbar">
+      <label id="filter">
+        <b>/</b>
+        <input id="filterInput" type="text" placeholder="filter name, repo, model, or summary"
+               autocomplete="off" spellcheck="false" aria-label="Filter agents">
+      </label>
+      <div id="controls">
+        <span id="sortLabel">Sort</span>
+        <span class="segmented" id="sortKeys"></span>
+        <span class="segmented" id="viewKeys">
+          <button type="button" data-group="1">Grouped</button>
+          <button type="button" data-group="0">Flat</button>
+        </span>
+        <span class="segmented">
+          <button type="button" data-density="compact">Compact</button>
+          <button type="button" data-density="comfy">Comfy</button>
+        </span>
+      </div>
+    </div>
+
+    <div id="listframe">
+      <div id="error" hidden></div>
+      <div id="head" role="row">
+        <span></span>
+        <button type="button" data-sort="status">Status</button>
+        <button type="button" data-sort="age">Age</button>
+        <button type="button" data-sort="name">Name</button>
+        <span class="model">Model</span>
+        <button type="button" data-sort="context">Context</button>
+        <button type="button" class="repo" data-sort="repo">Repo</button>
+        <span class="summary">Summary</span>
+      </div>
+      <div id="list" role="grid" aria-label="Claude Code agents" tabindex="-1"></div>
+      <div id="empty" hidden>no agents match</div>
+    </div>
+
+    <div id="readout">
+      <div id="readhead">
+        <span class="label" id="readlabel">Selection</span>
+        <span class="where" id="readwhere"></span>
+      </div>
+      <div id="cells"></div>
+      <div id="last" hidden></div>
+      <div id="actions">
+        <button type="button" id="focusBtn" class="primary">Focus window &#9166;</button>
+        <button type="button" id="copycwd">Copy cwd</button>
+        <button type="button" id="stopBtn" class="danger">Stop &#8963;X</button>
+        <span id="legend">
+          <span><kbd>&#8593;&#8595; jk</kbd> move</span>
+          <span><kbd>s a c n r</kbd> sort</span>
+          <span><kbd>q</kbd> quit</span>
+        </span>
+      </div>
+      <div id="notice" role="status" aria-live="polite"></div>
+    </div>
+  </main>
+</div>
