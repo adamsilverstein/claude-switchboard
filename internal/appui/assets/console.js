@@ -137,6 +137,9 @@ function moveCursor(delta) {
 
 // Scroll by whole rows rather than calling scrollIntoView, which jumps the
 // container around when the cursor is only just off the edge.
+//
+// offsetTop is only the distance into the list because the stylesheet gives
+// #list a position; a test checks that it still does.
 function scrollCursorIntoView() {
   const row = $("list").querySelector('[aria-selected="true"]');
   if (!row) return;

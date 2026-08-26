@@ -275,7 +275,11 @@ html, body {
 #head button { border: 0; background: none; font: inherit; letter-spacing: inherit; text-transform: inherit; color: inherit; padding: 0; text-align: left; }
 #head button[aria-sort] { color: var(--accent-ink); }
 
-#list { overflow-y: auto; flex: 0 1 auto; min-height: 0; }
+/* position, load-bearing: scrollCursorIntoView measures a row's offsetTop
+ * against this box's scrollTop, and offsetTop is measured from the nearest
+ * positioned ancestor. Without this it is measured from the body, and every
+ * scroll is off by the height of the toolbar above. */
+#list { position: relative; overflow-y: auto; flex: 0 1 auto; min-height: 0; }
 
 .band {
   display: flex;

@@ -214,3 +214,22 @@ func TestBandOrderMatchesTheSortOrder(t *testing.T) {
 		t.Errorf("console.js bands\n\t%v\nbut SortRows orders them\n\t%v", bands, sorted)
 	}
 }
+
+// scrollCursorIntoView compares a row's offsetTop with the list's scrollTop,
+// which are the same coordinate only while #list is a positioned box.
+// Without the position the offset is measured from the body, so it carries
+// the toolbar's height with it and the keyboard scrolls the selected row off
+// the top of the window instead of to its edge. It is one declaration in the
+// stylesheet, and nothing about the rule says the script depends on it.
+func TestTheListIsTheOffsetParentTheScrollingAssumes(t *testing.T) {
+	m := regexp.MustCompile(`#list\s*\{([^}]*)\}`).FindStringSubmatch(string(mustRead("assets/console.css")))
+	if m == nil {
+		t.Fatal("no #list rule in console.css; the pattern needs updating")
+	}
+	if !regexp.MustCompile(`position:\s*(relative|absolute|sticky|fixed)`).MatchString(m[1]) {
+		t.Errorf("#list is not positioned, so offsetTop is measured from the body: {%s}", strings.TrimSpace(m[1]))
+	}
+	if !strings.Contains(string(mustRead("assets/console.js")), "row.offsetTop") {
+		t.Error("scrollCursorIntoView no longer reads row.offsetTop; this test and the rule above it are stale")
+	}
+}
