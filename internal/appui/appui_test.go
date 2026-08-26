@@ -451,3 +451,24 @@ func TestColumnsGoWhenNothingCanFillThem(t *testing.T) {
 		t.Errorf("anyContext = %t, anyRef = %t, want both false", s.AnyContext, s.AnyRef)
 	}
 }
+
+// Grouping defaults to on, and a file that never mentions it has not turned
+// it off. Reading the key unconditionally made every prefs file written by
+// another build open the window ungrouped, with nothing to say it was not
+// the choice you made.
+func TestAPrefsFileMayLeaveKeysOut(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "app.json")
+	if err := os.WriteFile(path, []byte(`{"density":"compact"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s := snap(t, New(path))
+	if !s.Grouped {
+		t.Error("grouped = false; a file that omits the key should keep the default")
+	}
+	if s.Sort != "status" {
+		t.Errorf("sort = %q, want status", s.Sort)
+	}
+	if !s.Compact {
+		t.Error("compact = false; the one key the file did set was ignored")
+	}
+}

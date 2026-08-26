@@ -57,17 +57,19 @@ type Prefs struct {
 
 // New returns a controller, restoring preferences from path if it holds any.
 // A missing or unreadable file is not an error: it means the defaults, which
-// are the same defaults the terminal picker has.
+// are the same defaults the terminal picker has. Nor is a file that mentions
+// only some of them - a key it leaves out keeps its default rather than its
+// zero value, so a file written by another build, or edited by hand, cannot
+// silently turn grouping off by omission.
 func New(prefsPath string) *Controller {
 	c := &Controller{prefsPath: prefsPath, prefs: Prefs{Sort: "status", Grouped: true}}
 	if raw, err := os.ReadFile(prefsPath); err == nil {
-		var p Prefs
+		p := c.prefs
 		if json.Unmarshal(raw, &p) == nil {
-			if p.Sort != "" {
-				c.prefs.Sort = p.Sort
+			if p.Sort == "" {
+				p.Sort = c.prefs.Sort
 			}
-			c.prefs.Grouped = p.Grouped
-			c.prefs.Density = p.Density
+			c.prefs = p
 		}
 	}
 	return c
