@@ -1,0 +1,569 @@
+/* Console - the app window's layout.
+ *
+ * A hairline-ruled technical drawing: steel blue on a light ground, nothing
+ * rounded, no shadows. Colour never carries meaning on its own; the status
+ * word is always present beside the dot.
+ *
+ * Every colour here is measured against the three grounds it can sit on
+ * (--ground, --panel, --band). Text tokens clear 4.5:1 on all three;
+ * --accent is only ever used for graphics, which need 3:1, and --accent-ink
+ * is its darker twin for any surface carrying text.
+ */
+
+:root {
+  --ground: #f2f2f3;
+  --panel: #ebecee;
+  --band: #e4e6e9;
+  --thead: #e9eaec;
+
+  --text: #1d1f20;
+  --secondary: #43474b;
+  --muted: #63686c;
+
+  --rule-frame: #b3b7bb;
+  --rule-row: #d5d7da;
+  --rule-compact: #e0e2e5;
+  --chrome-border: #c3c6c9;
+
+  --accent: #5980a6;      /* bars, focus ring, non-text graphics only */
+  --accent-ink: #486888;  /* any accent surface carrying text */
+  --track: #dfe1e3;
+  --on-accent-dim: #dfe8f1;
+
+  --busy: #397339;
+  --idle: #816318;
+  --alert: #a34b40;       /* waiting, and any bar past its threshold */
+  --dead: #63686c;
+
+  --cond: "Barlow Condensed", "Helvetica Neue", sans-serif;
+  --sans: Barlow, -apple-system, "Helvetica Neue", sans-serif;
+  --mono: "JetBrains Mono", "SF Mono", Menlo, monospace;
+
+  --sidebar: 226px;
+  /* How much height the expanded readout takes. The page reads this to
+   * decide density and whether to collapse the readout to a strip, so it
+   * lives here beside the layout that produces it rather than as a number
+   * guessed at in the script. It must depend on width alone: deriving it
+   * from the rendered height would make the decision feed back into itself. */
+  --readout-h: 340px;
+  --row-pad: 12px;
+  --col-gap: 12px;
+  --name-size: 13.5px;
+  --bar-w: 46px;
+
+  /* A column with nothing behind it on this machine collapses to nothing
+   * rather than printing a dash on every row: a whole column of dashes
+   * says "this is broken" where an absent column says "not here". */
+  --col-context: 96px;
+  --col-repo: 160px;
+  --col-ref: 116px;
+  --col-summary: minmax(0, 1.25fr);
+}
+
+* { box-sizing: border-box; }
+
+/* Several blocks here set display, which would otherwise beat the browser's
+ * own [hidden] rule and leave an empty panel with a heading on it. */
+[hidden] { display: none !important; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  background: var(--ground);
+  color: var(--text);
+  font-family: var(--sans);
+  font-size: 13px;
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+  cursor: default;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.label {
+  font-family: var(--cond);
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.mono { font-family: var(--mono); }
+.dim { color: var(--muted); }
+.ellipsis { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ---------------------------------------------------------------- shell */
+
+#app {
+  display: grid;
+  grid-template-columns: var(--sidebar) 1fr;
+  height: 100%;
+}
+
+/* -------------------------------------------------------------- sidebar */
+
+#sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  padding: 20px 20px 18px;
+  border-right: 1px solid var(--chrome-border);
+  overflow-y: auto;
+}
+#sidebar.hidden { display: none; }
+#app.no-sidebar { grid-template-columns: 1fr; }
+
+#brand { display: flex; flex-direction: column; gap: 2px; }
+#brand b {
+  font-family: var(--cond);
+  font-weight: 700;
+  font-size: 26px;
+  letter-spacing: 0.03em;
+  line-height: 1;
+}
+#tally {
+  font-family: var(--cond);
+  font-size: 13px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--accent-ink);
+}
+#tally.alert { color: var(--alert); }
+
+.block { display: flex; flex-direction: column; gap: 8px; }
+
+#queue { display: flex; flex-direction: column; border: 1px solid var(--chrome-border); }
+#queue button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 7px 10px;
+  border: 0;
+  border-top: 1px solid var(--rule-row);
+  background: none;
+  font-family: var(--cond);
+  font-size: 15px;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--secondary);
+  text-align: left;
+}
+#queue button:first-child { border-top: 0; }
+#queue button > span { font-family: var(--mono); font-size: 11.5px; letter-spacing: 0; color: var(--muted); }
+#queue button[aria-selected="true"] { background: var(--accent-ink); color: #fff; font-weight: 600; }
+#queue button[aria-selected="true"] > span { color: #fff; }
+
+.facet {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 0;
+  border: 0;
+  background: none;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--secondary);
+  text-align: left;
+  overflow: hidden;
+}
+/* Three parts, and only the count keeps its width. Branch names run long -
+ * "add-notes-emoji-reactions-try-additional-comment-type" is a real one - so
+ * the branch gives way first, then the repository name, and the count is
+ * always there to be read. */
+.facet > b,
+.facet > i {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.facet > b { flex: 0 1 auto; font-weight: inherit; }
+.facet > i { flex: 0 2 auto; font-style: normal; color: var(--muted); }
+.facet > span { margin-left: auto; padding-left: 8px; color: var(--muted); flex: none; white-space: nowrap; }
+.facet[aria-pressed="true"] { color: var(--accent-ink); font-weight: 500; }
+
+.meter { display: flex; flex-direction: column; gap: 10px; padding: 13px 12px; border: 1px solid var(--rule-frame); }
+.meter .big { display: flex; align-items: baseline; gap: 8px; }
+.meter .big b { font-family: var(--cond); font-weight: 700; font-size: 30px; line-height: 1; }
+.meter .big span, .meter > .note { font-family: var(--mono); font-size: 10.5px; color: var(--muted); }
+
+.bar { display: flex; gap: 1px; height: 8px; }
+.bar i { display: block; background: var(--accent); }
+.bar u { display: block; background: var(--track); }
+.bar.over i { background: var(--alert); }
+
+#polled { margin-top: auto; font-family: var(--mono); font-size: 10.5px; color: var(--muted); }
+
+/* ----------------------------------------------------------------- main */
+
+#main { display: flex; flex-direction: column; padding: 20px 24px 18px; min-width: 0; overflow: hidden; }
+
+#toolbar { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 10px 16px; margin-bottom: 16px; }
+
+#filter {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 5px 11px;
+  min-width: 300px;
+  border: 1px solid var(--chrome-border);
+  background: #fff;
+  font-family: var(--mono);
+  font-size: 12.5px;
+}
+#filter b { color: var(--accent-ink); font-weight: 400; }
+#filter input {
+  flex: 1;
+  border: 0;
+  outline: 0;
+  background: none;
+  font: inherit;
+  color: var(--text);
+  -webkit-user-select: text;
+  user-select: text;
+}
+#filter input::placeholder { color: var(--muted); }
+
+#controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-family: var(--cond); font-size: 13px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); }
+.segmented { display: inline-flex; border: 1px solid var(--chrome-border); }
+.segmented button {
+  padding: 4px 11px;
+  border: 0;
+  border-left: 1px solid var(--chrome-border);
+  background: none;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  color: var(--secondary);
+}
+.segmented button:first-child { border-left: 0; }
+.segmented button[aria-pressed="true"] { background: var(--accent-ink); color: #fff; font-weight: 600; }
+
+/* ----------------------------------------------------------------- list */
+
+/* The frame hugs its rows and stops growing once it fills the space it has;
+ * a table stretched past its content reads as a table that lost some. */
+#listframe { display: flex; flex-direction: column; border: 1px solid var(--rule-frame); min-height: 0; flex: 0 1 auto; }
+
+/* The template is declared here rather than as a variable on :root: a custom
+ * property that contains var() is substituted where it is declared, so a
+ * width overridden further down the tree would never reach it. */
+#head, .row {
+  display: grid;
+  grid-template-columns:
+    22px 78px 62px minmax(0, 1.5fr) var(--col-context)
+    var(--col-repo) var(--col-ref) var(--col-summary);
+  align-items: center;
+  gap: 0 var(--col-gap);
+  padding: var(--row-pad) 15px;
+}
+#head {
+  padding-top: 8px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--rule-frame);
+  background: var(--thead);
+  font-family: var(--cond);
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--muted);
+  flex: none;
+}
+#head button { border: 0; background: none; font: inherit; letter-spacing: inherit; text-transform: inherit; color: inherit; padding: 0; text-align: left; }
+#head button[aria-sort] { color: var(--accent-ink); }
+
+/* position, load-bearing: scrollCursorIntoView measures a row's offsetTop
+ * against this box's scrollTop, and offsetTop is measured from the nearest
+ * positioned ancestor. Without this it is measured from the body, and every
+ * scroll is off by the height of the toolbar above. */
+#list { position: relative; overflow-y: auto; flex: 0 1 auto; min-height: 0; }
+
+.band {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 4px 15px;
+  border-bottom: 1px solid var(--rule-row);
+  background: var(--band);
+  font-family: var(--cond);
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  position: sticky;
+  top: 0;
+}
+.band .hint { font-family: var(--mono); font-size: 10px; letter-spacing: 0; text-transform: none; color: var(--muted); }
+
+.row { border-bottom: 1px solid var(--rule-row); }
+.row:last-child { border-bottom: 0; }
+.row:hover { background: var(--panel); }
+.row .dot { font-size: 14px; line-height: 1; }
+.row .status { font-family: var(--cond); font-size: 15px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; }
+.row .age, .row .repo { font-family: var(--mono); font-size: 11px; color: var(--secondary); }
+.row .age { font-size: 12px; color: var(--muted); }
+/* The name and its subline are not grid items - they sit inside the name
+ * cell - so nothing blockifies them, and text-overflow does nothing to an
+ * inline box. That is why a long name ran straight over the context column
+ * while the summary beside it, which is a grid item, clipped correctly. */
+.row .name-cell { display: flex; flex-direction: column; min-width: 0; }
+.row .name { display: block; min-width: 0; font-size: var(--name-size); font-weight: 500; }
+.row .sub { display: none; min-width: 0; font-family: var(--mono); font-size: 10.5px; color: var(--muted); }
+.row .ctx { display: flex; align-items: center; gap: 7px; }
+.row .ctx .bar { width: var(--bar-w); height: 7px; flex: none; }
+.row .ctx .pct { font-family: var(--mono); font-size: 11px; color: var(--muted); }
+.row .ctx .pct.over { color: var(--alert); }
+.row .summary { font-size: 13px; color: var(--muted); }
+
+/* Status lives in the dot and the word, never in the whole row. */
+.row[data-status="busy"] .dot, .row[data-status="busy"] .status { color: var(--busy); }
+.row[data-status="idle"] .dot, .row[data-status="idle"] .status { color: var(--idle); }
+.row[data-status="waiting"] .dot, .row[data-status="waiting"] .status { color: var(--alert); }
+.row[data-status="shell"] .dot, .row[data-status="shell"] .status { color: var(--accent-ink); }
+
+/* A dead row reads quieter because the live rows are darker, not because it
+ * is faded: opacity would take every part of it below 2.5:1. */
+.row[data-live="false"] { color: var(--dead); }
+.row[data-live="false"] .name,
+.row[data-live="false"] .status,
+.row[data-live="false"] .age,
+.row[data-live="false"] .repo,
+.row[data-live="false"] .summary { color: var(--dead); font-weight: 400; }
+
+.row[aria-selected="true"] { background: var(--accent-ink); }
+.row[aria-selected="true"],
+.row[aria-selected="true"] .name,
+.row[aria-selected="true"] .status,
+.row[aria-selected="true"] .dot,
+.row[aria-selected="true"] .age,
+.row[aria-selected="true"] .repo,
+.row[aria-selected="true"] .ctx .pct { color: #fff; }
+.row[aria-selected="true"] .summary, .row[aria-selected="true"] .sub { color: var(--on-accent-dim); }
+.row[aria-selected="true"] .bar i { background: #fff; }
+.row[aria-selected="true"] .bar u { background: rgba(255, 255, 255, 0.3); }
+.row[aria-selected="true"] .name { font-weight: 600; }
+
+/* Focusing takes a few hundred milliseconds of AppleScript. The row blinks
+ * so the keypress is acknowledged before anything else happens. */
+.row.flash { background: var(--accent); }
+
+/* The pull request or issue. The number reads as a link because it is one -
+ * clicking it opens the pull request - and the state sits beside it in the
+ * colour the list already uses for that meaning. */
+.row .ref { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
+.row .ref .num {
+  flex: none;
+  border: 0;
+  padding: 0;
+  background: none;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--accent-ink);
+  cursor: pointer;
+}
+.row .ref .num:hover:not(:disabled) { text-decoration: underline; }
+.row .ref .num:disabled { color: var(--secondary); cursor: default; }
+.row .ref .num.none { color: var(--muted); }
+.row .ref .state {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--cond);
+  font-size: 10.5px;
+  font-style: normal;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+/* The same meanings the list already assigns these colours: green is work
+ * under way, red is work that stopped, and the accent is where it landed. */
+.row .ref .s-open { color: var(--busy); }
+.row .ref .s-draft { color: var(--muted); }
+.row .ref .s-merged { color: var(--accent-ink); }
+.row .ref .s-closed { color: var(--alert); }
+.row[data-live="false"] .ref .num, .row[data-live="false"] .ref .state { color: var(--dead); }
+.row[aria-selected="true"] .ref .num { color: #fff; }
+.row[aria-selected="true"] .ref .state { color: var(--on-accent-dim); }
+
+/* The readout repeats the number, so it gets the same affordance. */
+.cell .num {
+  border: 0;
+  padding: 0;
+  background: none;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--accent-ink);
+  cursor: pointer;
+}
+.cell .num:hover:not(:disabled) { text-decoration: underline; }
+.cell .num:disabled { color: var(--secondary); cursor: default; }
+
+.no-context { --col-context: 0px; }
+.no-ref { --col-ref: 0px; }
+/* visibility, not display: a grid child that is display:none is not placed
+ * at all, and every column after it slides one to the left. */
+.no-context .ctx,
+.no-context #head [data-sort="context"],
+.no-ref .ref,
+.no-ref #head .ref { visibility: hidden; overflow: hidden; }
+.no-context #sortKeys [data-sort="context"] { display: none; }
+
+#empty { padding: 26px 15px; color: var(--muted); font-size: 13px; }
+#error { padding: 10px 15px; border-bottom: 1px solid var(--rule-frame); background: var(--band); color: var(--alert); font-family: var(--mono); font-size: 11.5px; }
+
+/* -------------------------------------------------------------- readout */
+
+#readout { display: flex; flex-direction: column; gap: 14px; margin-top: 22px; flex: none; }
+#readhead { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; }
+#readhead .where { font-family: var(--mono); font-size: 11px; color: var(--muted); }
+
+#cells { display: grid; grid-auto-columns: minmax(0, 1fr); grid-auto-flow: column; border: 1px solid var(--rule-frame); }
+.cell { display: flex; flex-direction: column; gap: 9px; padding: 15px 16px; border-left: 1px solid var(--rule-row); min-width: 0; }
+.cell:first-child { border-left: 0; }
+/* One line each, truncated. A branch name long enough to wrap would push
+ * the whole readout taller, which is height the list is owed. */
+.cell .line {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cell .line.soft { color: var(--muted); }
+.cell .note { font-family: var(--mono); font-size: 10.5px; color: var(--muted); }
+.cell .big { display: flex; align-items: baseline; gap: 8px; }
+.cell .big b { font-family: var(--cond); font-weight: 700; font-size: 30px; line-height: 1; }
+.cell .big span { font-family: var(--mono); font-size: 10.5px; color: var(--muted); }
+.chip {
+  display: inline-flex;
+  align-self: flex-start;
+  padding: 2px 8px;
+  border: 1px solid var(--accent);
+  font-family: var(--cond);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--accent-ink);
+}
+.branch { color: var(--accent-ink); }
+
+/* The last message is whatever the agent said, which can be several hundred
+ * characters of markdown. Three lines of it is a reminder of where the
+ * session got to; the rest is in the terminal this window points at. */
+#last {
+  padding: 13px 15px;
+  border: 1px solid var(--rule-row);
+  background: var(--panel);
+  font-size: 13.5px;
+  line-height: 1.55;
+  color: var(--secondary);
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+}
+
+#actions { display: flex; align-items: center; gap: 12px; }
+#actions button {
+  padding: 9px 18px;
+  border: 1px solid var(--rule-frame);
+  background: none;
+  font-family: var(--cond);
+  font-size: 15px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--secondary);
+}
+#actions button.primary { border-color: var(--accent-ink); background: var(--accent-ink); color: #fff; font-weight: 600; }
+#actions button.danger { color: var(--alert); }
+#actions button:disabled { color: var(--muted); border-color: var(--rule-row); }
+
+#legend { display: flex; align-items: center; gap: 18px; margin-left: auto; font-family: var(--cond); font-size: 13px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); }
+#legend span { display: inline-flex; align-items: center; gap: 7px; }
+#legend kbd { padding: 2px 7px; border: 1px solid var(--rule-frame); font-family: var(--mono); font-size: 11px; letter-spacing: 0; text-transform: none; color: var(--text); }
+
+#notice { min-height: 16px; margin-top: 10px; font-family: var(--mono); font-size: 11.5px; color: var(--secondary); }
+#notice.alert { color: var(--alert); }
+
+/* Collapsed to a single strip when the list needs the room. */
+#readout.strip #cells, #readout.strip #last { display: none; }
+#readout.strip { gap: 10px; margin-top: 14px; }
+#readout.strip #readhead { padding: 9px 12px; border: 1px solid var(--rule-frame); }
+/* One line, always: a strip that wraps has stopped being a strip. */
+#readout.strip #readlabel, #readout.strip .where { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#readout.strip #readlabel { flex: 0 1 auto; }
+#readout.strip .where { flex: 0 1 auto; }
+
+/* ---------------------------------------------------------- compactness */
+
+.compact {
+  --row-pad: 6px;
+  --col-gap: 10px;
+  --name-size: 12.5px;
+  --bar-w: 30px;
+}
+.compact .row { border-bottom-color: var(--rule-compact); }
+.compact .row .status { font-family: var(--mono); font-size: 10.5px; font-weight: 500; letter-spacing: 0.04em; }
+.compact .row .summary { font-size: 12px; }
+
+/* -------------------------------------------------------- laptop, <1200 */
+
+@media (max-width: 1200px) {
+  :root { --sidebar: 186px; --col-summary: 0px; }
+  /* MODEL and REPO fold into a subline under the name; SUMMARY leaves the
+   * table entirely - the fixed columns leave too little to split between it
+   * and the name. It survives in the readout. PR / ISSUE stays: it is the
+   * one column here that says what the agent is actually working on. */
+  .row .summary, #head .summary { visibility: hidden; overflow: hidden; }
+  .row .sub { display: block; }
+  .row .name-cell { min-width: 0; }
+  /* The readout goes 2 x 2 here, so it costs roughly twice the height. */
+  :root { --readout-h: 460px; }
+  #models, #copycwd { display: none; }
+  #tally { font-size: 12px; letter-spacing: 0.1em; }
+  /* The sort control drops to four keys and loses its label. */
+  #sortLabel, #sortKeys [data-sort="dir"], #sortKeys [data-sort="repo"] { display: none; }
+  #cells { grid-auto-flow: row; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .cell:nth-child(odd) { border-left: 0; }
+  .cell:nth-child(n + 3) { border-top: 1px solid var(--rule-row); }
+  #filter { min-width: 200px; }
+}
+
+/* Below the floor the sidebar hides behind cmd-1 rather than reflowing on. */
+@media (max-width: 979px) {
+  #app { grid-template-columns: 1fr; }
+  #sidebar { display: none; }
+  #viewKeys { display: none; }
+}
+
+/* ------------------------------------------------------- desktop, 1600+ */
+
+@media (min-width: 1600px) {
+  :root {
+    --readout-h: 340px;
+    --sidebar: 260px;
+  }
+  #filter { min-width: 420px; }
+  /* Past ~2200 the drawing stops reading as one; cap and centre it. */
+  #main > * { max-width: 2200px; width: 100%; margin-left: auto; margin-right: auto; }
+  .cell { max-width: 480px; }
+}
+/* REPO is the first column to go when the table narrows: it is the one the
+ * name's subline already carries below 1200, and the readout always does. */
+@media (max-width: 1599px) {
+  :root { --col-repo: 0px; }
+  .row .repo, #head .repo { visibility: hidden; overflow: hidden; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .row.flash { transition: none; }
+}

@@ -2,13 +2,10 @@ package main
 
 import (
 	"fmt"
-	"syscall"
 
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/adamsilverstein/claude-switchboard/internal/activity"
-	"github.com/adamsilverstein/claude-switchboard/internal/locate"
-	"github.com/adamsilverstein/claude-switchboard/internal/registry"
 	"github.com/adamsilverstein/claude-switchboard/internal/target"
 	"github.com/adamsilverstein/claude-switchboard/internal/ui"
 )
@@ -42,30 +39,7 @@ func runUI() error {
 		return rows, nil
 	}
 
-	focuser := func(a registry.Agent) (string, error) {
-		loc := locateAgent(a)
-		if err := target.Focus(target.ExecRunner{}, loc); err != nil {
-			return "", err
-		}
-		return loc.Desc, nil
-	}
-
-	// The stop confirmation can sit for a while between ctrl+x and y, so
-	// re-verify the PID still belongs to the registered process before
-	// signaling: a reused PID must never receive the SIGTERM.
-	stopper := func(a registry.Agent) error {
-		procs, err := locate.Snapshot([]int{a.PID})
-		if err != nil {
-			return err
-		}
-		p, ok := procs[a.PID]
-		if !ok || !registry.SameProcess(a, p.Start) {
-			return fmt.Errorf("agent is gone; not signaling pid %d", a.PID)
-		}
-		return syscall.Kill(a.PID, syscall.SIGTERM)
-	}
-
-	_, err = tea.NewProgram(ui.New(source, focuser, stopper), tea.WithAltScreen()).Run()
+	_, err = tea.NewProgram(ui.New(source, focusAgent, stopAgent), tea.WithAltScreen()).Run()
 	if err != nil {
 		return fmt.Errorf("ui: %w", err)
 	}

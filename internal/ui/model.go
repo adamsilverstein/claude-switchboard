@@ -13,6 +13,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/adamsilverstein/claude-switchboard/internal/forge"
 	"github.com/adamsilverstein/claude-switchboard/internal/registry"
 )
 
@@ -25,6 +26,63 @@ type Row struct {
 	Name    string
 	Summary string
 	Age     time.Time // freshest activity timestamp known for the agent
+
+	// Telemetry is the extra per-session detail the app window shows. It
+	// is optional throughout: the terminal picker leaves it zero, and
+	// even the app window fills in only what the machine can actually
+	// tell it. Every field must render as "unknown" at its zero value.
+	Telemetry Telemetry
+}
+
+// Telemetry is what could be learned about a session beyond the registry
+// entry: the model it is on, how full its context window is, the repository
+// it is working in. None of it is guaranteed - a session whose transcript is
+// unreadable, or whose statusline shim is not installed, carries a zero
+// Telemetry and still lists.
+type Telemetry struct {
+	Model          string // display name, "Opus 5"; "" when unknown
+	ContextWindow  int    // tokens the model can hold; 0 when unknown
+	ContextTokens  int    // tokens currently held; 0 when unknown
+	PermissionMode string // "auto", "plan", "default"; "" when unknown
+	Repo           string // basename of the repository root
+	Branch         string // current git branch
+	Dirty          bool   // repository has uncommitted changes
+
+	// Ref is the pull request or issue the branch belongs to, when the
+	// forge could be asked. Zero means either that there is none or that
+	// nobody has looked yet; the view renders both as absent.
+	Ref forge.Ref
+
+	Elapsed    time.Duration // since the session started; 0 when unknown
+	TTY        string        // "ttys014"
+	WindowDesc string        // "iTerm window 3", "tmux 2.1", "not focusable"
+
+	// Waiting is true when the agent looks like it is waiting on you
+	// rather than idling on its own. The registry has no such flag, so
+	// this is derived: an idle agent whose last transcript entry is an
+	// assistant turn stopped and handed the turn back to you.
+	Waiting bool
+
+	// Compactions is how many times the session has been compacted, and
+	// KnownCompactions says whether that count was actually measured.
+	// Counting requires reading the whole transcript, so it stays unset
+	// until something is willing to pay for that.
+	Compactions      int
+	KnownCompactions bool
+}
+
+// ContextPct returns how full the context window is as a whole percentage,
+// and false when either half of the fraction is missing. Callers must not
+// substitute zero: a session with no context reading is not a session at 0%.
+func (t Telemetry) ContextPct() (int, bool) {
+	if t.ContextWindow <= 0 || t.ContextTokens <= 0 {
+		return 0, false
+	}
+	pct := t.ContextTokens * 100 / t.ContextWindow
+	if pct > 100 {
+		pct = 100
+	}
+	return pct, true
 }
 
 // Source fetches the current rows. Injected so tests can script the data.
@@ -38,25 +96,54 @@ type Focuser func(a registry.Agent) (string, error)
 // anything.
 type Stopper func(a registry.Agent) error
 
-type sortKey int
+// SortKey is the column the list is ordered by. The app window and the
+// terminal picker share the key set so a sort chosen in one means the same
+// thing in the other.
+type SortKey int
 
 const (
-	sortStatus sortKey = iota
-	sortAge
-	sortName
-	sortDir
+	SortStatus SortKey = iota
+	SortAge
+	SortName
+	SortDir
+	SortContext // context window used, fullest first
+	SortRepo
 )
 
-func (k sortKey) String() string {
+func (k SortKey) String() string {
 	switch k {
-	case sortAge:
+	case SortAge:
 		return "age"
-	case sortName:
+	case SortName:
 		return "name"
-	case sortDir:
+	case SortDir:
 		return "dir"
+	case SortContext:
+		return "context"
+	case SortRepo:
+		return "repo"
 	default:
 		return "status"
+	}
+}
+
+// ParseSortKey resolves a key name sent over the app window's bridge.
+// An unrecognised name falls back to status rather than erroring: a UI that
+// asks for a sort this build does not have should still get a sorted list.
+func ParseSortKey(s string) SortKey {
+	switch s {
+	case "age":
+		return SortAge
+	case "name":
+		return SortName
+	case "dir":
+		return SortDir
+	case "context":
+		return SortContext
+	case "repo":
+		return SortRepo
+	default:
+		return SortStatus
 	}
 }
 
@@ -71,7 +158,7 @@ type Model struct {
 	notice   string // transient message shown in the footer
 	filter   string
 	typing   bool // filter input active
-	sort     sortKey
+	sort     SortKey
 	cursor   int             // index into visible()
 	stopping *registry.Agent // agent awaiting stop confirmation
 	flash    int             // remaining flash frames on the focused row
@@ -267,16 +354,16 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.clampCursor()
 		return m, nil
 	case "s":
-		m.sort = sortStatus
+		m.sort = SortStatus
 		return m, nil
 	case "a":
-		m.sort = sortAge
+		m.sort = SortAge
 		return m, nil
 	case "n":
-		m.sort = sortName
+		m.sort = SortName
 		return m, nil
 	case "d":
-		m.sort = sortDir
+		m.sort = SortDir
 		return m, nil
 	case "ctrl+x":
 		rows := m.visible()
@@ -334,42 +421,101 @@ func (m *Model) clampCursor() {
 	}
 }
 
-// visible returns the rows that pass the filter, in sort order. Dead agents
-// stay listed (greyed out in the view) so you can see what just finished;
-// they sort after live ones under every key.
+// visible returns the rows that pass the filter, in sort order.
 func (m Model) visible() []Row {
-	rows := make([]Row, 0, len(m.rows))
-	q := strings.ToLower(m.filter)
-	for _, r := range m.rows {
-		if q == "" ||
-			strings.Contains(strings.ToLower(r.Name), q) ||
-			strings.Contains(strings.ToLower(r.Agent.Cwd), q) ||
-			strings.Contains(strings.ToLower(r.Summary), q) {
-			rows = append(rows, r)
+	rows := Filter(m.rows, m.filter)
+	SortRows(rows, m.sort)
+	return rows
+}
+
+// Filter returns the rows matching q, case-insensitively, across every field
+// worth searching: name, working directory, summary, and - when the caller
+// has filled them in - repository, model, and the pull request the branch
+// belongs to, by number or by title. An empty query matches
+// everything. The result is a fresh slice; the input is left alone.
+func Filter(rows []Row, q string) []Row {
+	out := make([]Row, 0, len(rows))
+	q = strings.ToLower(strings.TrimSpace(q))
+	for _, r := range rows {
+		if q == "" || r.matches(q) {
+			out = append(out, r)
 		}
 	}
-	key := m.sort
+	return out
+}
+
+func (r Row) matches(q string) bool {
+	for _, field := range []string{
+		r.Name,
+		r.Agent.Cwd,
+		r.Summary,
+		r.Telemetry.Repo,
+		r.Telemetry.Model,
+		r.Telemetry.Ref.Label(),
+		r.Telemetry.Ref.Title,
+	} {
+		if field != "" && strings.Contains(strings.ToLower(field), q) {
+			return true
+		}
+	}
+	return false
+}
+
+// SortRows orders rows in place under key. Dead agents stay listed (greyed
+// out in the view) so you can see what just finished; they sort after live
+// ones under every key. Rows missing the data a key needs sort last within
+// their liveness group rather than sorting as zero.
+func SortRows(rows []Row, key SortKey) {
 	sort.SliceStable(rows, func(i, j int) bool {
 		a, b := rows[i], rows[j]
 		if a.Agent.Live != b.Agent.Live {
 			return a.Agent.Live
 		}
 		switch key {
-		case sortAge:
+		case SortAge:
 			return a.Age.After(b.Age)
-		case sortName:
+		case SortName:
 			return strings.ToLower(a.Name) < strings.ToLower(b.Name)
-		case sortDir:
+		case SortDir:
 			return strings.ToLower(a.Agent.Cwd) < strings.ToLower(b.Agent.Cwd)
+		case SortContext:
+			pa, oka := a.Telemetry.ContextPct()
+			pb, okb := b.Telemetry.ContextPct()
+			if oka != okb {
+				return oka
+			}
+			if pa != pb {
+				return pa > pb
+			}
+			return a.Age.After(b.Age)
+		case SortRepo:
+			ra, rb := a.Telemetry.Repo, b.Telemetry.Repo
+			if (ra == "") != (rb == "") {
+				return ra != ""
+			}
+			if !strings.EqualFold(ra, rb) {
+				return strings.ToLower(ra) < strings.ToLower(rb)
+			}
+			return strings.ToLower(a.Name) < strings.ToLower(b.Name)
 		default:
-			ra, rb := statusRank(a.Agent.Status), statusRank(b.Agent.Status)
+			ra, rb := statusRank(a.statusForRank()), statusRank(b.statusForRank())
 			if ra != rb {
 				return ra < rb
 			}
 			return a.Age.After(b.Age)
 		}
 	})
-	return rows
+}
+
+// statusForRank is the status the sort treats the row as having. It is the
+// registry's own status unless telemetry derived that the agent is waiting
+// on you, which the registry never records itself. Rows with no telemetry -
+// every row the terminal picker builds - rank exactly as they always did.
+func (r Row) statusForRank() string {
+	if r.Telemetry.Waiting {
+		return "waiting"
+	}
+	return r.Agent.Status
 }
 
 // statusRank orders statuses by how much attention they deserve: agents

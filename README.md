@@ -43,7 +43,7 @@ yesterday. Unlike tmux managers, it sees every agent regardless of how it was
 launched - bare iTerm windows, tmux panes, background and SDK sessions - and
 joins each one to the operating-system window it is sitting in.
 
-![The Switchboard app window listing four live Claude Code agents - one idle, three busy - each with its status dot, age, name, and a one-line summary of what it is doing](assets/screenshot.png)
+![The Switchboard app window: nine Claude Code agents grouped into Needs you, Working, Idle and Shell, each row carrying its status, age, name, context-window meter, repository and branch, the pull request it is on, and a one-line summary. A sidebar counts the queues and the repositories; a readout below the list expands the selected agent](assets/screenshot.png)
 
 ## Install
 
@@ -154,14 +154,49 @@ scripts/make-app.sh
 open ~/Applications/Switchboard.app
 ```
 
-The window is a WKWebView running a vendored copy of
-[xterm.js](https://xtermjs.org/), with the unchanged terminal picker attached
-behind it on a pty - same keys, same behavior, zero extra runtimes to
-install. The first focus from the app triggers a one-time macOS Automation
-permission prompt for controlling iTerm, attributed to Switchboard rather
-than to your terminal. Quitting the picker with `q` closes the window, `cmd-q`
-closes it from anywhere in the window, and closing the window stops the
-picker.
+The window is a WKWebView rendering a self-contained page - stylesheet,
+script and three vendored typefaces, all embedded in the binary, no network
+of any kind and no node toolchain. It shows the same agents the terminal
+picker does, laid out to answer the questions a terminal column cannot: which
+agent is waiting on you, how full its context window is, which model it is
+on, how long it has been running, and which pull request it is working on.
+
+Filtering and sorting happen in the same Go functions the terminal picker
+calls, so the two cannot disagree about what "sorted by status" means.
+
+The list groups by status - **Needs you**, **Working**, **Idle**, **Ended** -
+whenever it is sorted by status, and goes flat under any other sort. "Needs
+you" is derived rather than reported: an idle agent whose last transcript
+entry is its own reply has finished its turn and handed control back. Ended
+agents stay listed, collapsed, and are never dropped.
+
+The **PR / Issue** column asks GitHub what the agent's branch belongs to and
+shows the number beside its state - open, draft, merged, closed. Clicking the
+number opens it in your browser. It needs the [`gh`
+CLI](https://cli.github.com) on your `PATH` and logged in; without it the
+column is simply absent, like every other column with nothing behind it. A
+branch with no pull request of its own falls back to an issue number in the
+branch name (`1234-retry-on-429`, `issue-11`), and an agent sitting on a
+trunk shows nothing, because a trunk is not a piece of work.
+
+Asking costs a `gh` call per repository, so the answers are cached for two
+minutes and fetched off the poll loop; nothing in the window ever waits on
+the network.
+
+Density follows the window, not the agent count: the page measures how many
+rows it can show and switches to compact when they stop fitting. Compact and
+Comfy, and Grouped and Flat, are also yours to set, and the choice persists.
+
+Keys: arrows or `j`/`k` move, `enter` focuses, `/` filters across name,
+directory, repository, model, pull request and summary, `s`/`a`/`c`/`n`/`r`/`d` sort by
+status, age, context, name, repo or directory, `e` expands the Ended group,
+`ctrl+x` (then `y`) stops an agent with SIGTERM, `cmd-1` hides the sidebar,
+`q` or `cmd-q` quits. Clicking a row selects it, double-clicking focuses it,
+and the sidebar's queue, repository and model lists are filters.
+
+The first focus from the app triggers a one-time macOS Automation permission
+prompt for controlling iTerm, attributed to Switchboard rather than to your
+terminal. Closing the window quits the app.
 
 `switchboard app` needs a cgo build (the default on macOS); cross-compiled
 `CGO_ENABLED=0` release binaries print an explanatory error instead.
@@ -173,13 +208,43 @@ waiting on you. The artwork lives in [`assets/icon.svg`](assets/icon.svg) and
 editing the SVG, regenerate the `.icns` with `scripts/make-icon.sh` (it needs
 `rsvg-convert` or a Chromium-based browser to rasterize).
 
-In the picker: arrows or `j`/`k` move, `/` filters incrementally across name,
-directory, and summary, `s`/`a`/`n`/`d` sort by status, age, name, or
-directory, `enter` focuses the selection, `ctrl+x` (then `y`) stops an agent
-with SIGTERM, `q` quits. The working directory has no column of its own - it
+In the terminal picker: arrows or `j`/`k` move, `/` filters incrementally
+across name, directory, and summary, `s`/`a`/`n`/`d` sort by status, age,
+name, or directory, `enter` focuses the selection, `ctrl+x` (then `y`) stops
+an agent with SIGTERM, `q` quits. The working directory has no column of its own - it
 repeats across most rows, and the summary is what tells agents apart - but it
 is still filtered and sorted on. Dead agents stay listed greyed out so you
 can see what just finished; they sort last under every key.
+
+### Session telemetry (optional)
+
+Three of the numbers the app window can show - the display name of the model,
+the size of its context window, and how much of your rate limit is spent -
+exist nowhere on disk. Claude Code pipes them into whatever command you have
+configured as your `statusLine`, and forgets them. Switchboard is a separate
+process and never sees that pipe.
+
+If you want those numbers, chain switchboard in front of your statusline. It
+copies the payload to `~/.claude/switchboard/statusline/<sessionId>.json` on
+its way past and runs what you had before, unchanged:
+
+```jsonc
+// ~/.claude/settings.json
+"statusLine": {
+  "type": "command",
+  "command": "switchboard statusline -- my-existing-statusline"
+}
+```
+
+With nothing to wrap, `switchboard statusline` on its own is a valid (empty)
+statusline that still records the payload.
+
+This is entirely optional. Sessions without it keep every other column; the
+context percentage and the usage meter are omitted rather than shown blank.
+The shim never fails: an unreadable payload is dropped and your statusline
+still renders, because losing telemetry for one session is a much smaller
+problem than replacing your prompt with an error message. Files for sessions
+untouched for a month are swept up automatically.
 
 ## How it works
 
@@ -232,6 +297,19 @@ go build ./cmd/switchboard
 ```
 
 The layout follows the design in issue #1: `internal/registry` (scan and
-liveness), `internal/activity` (transcript tail), `internal/locate`
-(pid to tty), `internal/target` (window resolution and focus),
-`internal/ui` (the Bubble Tea picker).
+liveness), `internal/activity` (transcript tail and the telemetry in it),
+`internal/locate` (pid to tty), `internal/target` (window resolution and
+focus), `internal/git` (repository, branch and dirty flag, cached),
+`internal/forge` (the branch's pull request or issue, via `gh`, cached),
+`internal/statusline` (the opt-in shim's files), `internal/ui` (the Bubble
+Tea picker, and the filter and sort both front ends share), and
+`internal/appui` (the app window's page and the state behind it).
+
+To work on the app window's layout without a cgo build or a Mac, serve the
+page in an ordinary browser against the real controller and fabricated
+agents:
+
+```sh
+go run ./cmd/consolepreview -agents 18   # add -bare for a machine with no shim
+open http://localhost:8765
+```
