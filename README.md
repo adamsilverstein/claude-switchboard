@@ -154,14 +154,36 @@ scripts/make-app.sh
 open ~/Applications/Switchboard.app
 ```
 
-The window is a WKWebView running a vendored copy of
-[xterm.js](https://xtermjs.org/), with the unchanged terminal picker attached
-behind it on a pty - same keys, same behavior, zero extra runtimes to
-install. The first focus from the app triggers a one-time macOS Automation
-permission prompt for controlling iTerm, attributed to Switchboard rather
-than to your terminal. Quitting the picker with `q` closes the window, `cmd-q`
-closes it from anywhere in the window, and closing the window stops the
-picker.
+The window is a WKWebView rendering a self-contained page - stylesheet,
+script and three vendored typefaces, all embedded in the binary, no network
+of any kind and no node toolchain. It shows the same agents the terminal
+picker does, laid out to answer the questions a terminal column cannot: which
+agent is waiting on you, how full its context window is, which model it is
+on, how long it has been running.
+
+Filtering and sorting happen in the same Go functions the terminal picker
+calls, so the two cannot disagree about what "sorted by status" means.
+
+The list groups by status - **Needs you**, **Working**, **Idle**, **Ended** -
+whenever it is sorted by status, and goes flat under any other sort. "Needs
+you" is derived rather than reported: an idle agent whose last transcript
+entry is its own reply has finished its turn and handed control back. Ended
+agents stay listed, collapsed, and are never dropped.
+
+Density follows the window, not the agent count: the page measures how many
+rows it can show and switches to compact when they stop fitting. Compact and
+Comfy, and Grouped and Flat, are also yours to set, and the choice persists.
+
+Keys: arrows or `j`/`k` move, `enter` focuses, `/` filters across name,
+directory, repository, model and summary, `s`/`a`/`c`/`n`/`r`/`d` sort by
+status, age, context, name, repo or directory, `e` expands the Ended group,
+`ctrl+x` (then `y`) stops an agent with SIGTERM, `cmd-1` hides the sidebar,
+`q` or `cmd-q` quits. Clicking a row selects it, double-clicking focuses it,
+and the sidebar's queue, repository and model lists are filters.
+
+The first focus from the app triggers a one-time macOS Automation permission
+prompt for controlling iTerm, attributed to Switchboard rather than to your
+terminal. Closing the window quits the app.
 
 `switchboard app` needs a cgo build (the default on macOS); cross-compiled
 `CGO_ENABLED=0` release binaries print an explanatory error instead.
@@ -173,10 +195,10 @@ waiting on you. The artwork lives in [`assets/icon.svg`](assets/icon.svg) and
 editing the SVG, regenerate the `.icns` with `scripts/make-icon.sh` (it needs
 `rsvg-convert` or a Chromium-based browser to rasterize).
 
-In the picker: arrows or `j`/`k` move, `/` filters incrementally across name,
-directory, and summary, `s`/`a`/`n`/`d` sort by status, age, name, or
-directory, `enter` focuses the selection, `ctrl+x` (then `y`) stops an agent
-with SIGTERM, `q` quits. The working directory has no column of its own - it
+In the terminal picker: arrows or `j`/`k` move, `/` filters incrementally
+across name, directory, and summary, `s`/`a`/`n`/`d` sort by status, age,
+name, or directory, `enter` focuses the selection, `ctrl+x` (then `y`) stops
+an agent with SIGTERM, `q` quits. The working directory has no column of its own - it
 repeats across most rows, and the summary is what tells agents apart - but it
 is still filtered and sorted on. Dead agents stay listed greyed out so you
 can see what just finished; they sort last under every key.
@@ -262,6 +284,18 @@ go build ./cmd/switchboard
 ```
 
 The layout follows the design in issue #1: `internal/registry` (scan and
-liveness), `internal/activity` (transcript tail), `internal/locate`
-(pid to tty), `internal/target` (window resolution and focus),
-`internal/ui` (the Bubble Tea picker).
+liveness), `internal/activity` (transcript tail and the telemetry in it),
+`internal/locate` (pid to tty), `internal/target` (window resolution and
+focus), `internal/git` (repository name and dirty flag, cached),
+`internal/statusline` (the opt-in shim's files), `internal/ui` (the Bubble
+Tea picker, and the filter and sort both front ends share), and
+`internal/appui` (the app window's page and the state behind it).
+
+To work on the app window's layout without a cgo build or a Mac, serve the
+page in an ordinary browser against the real controller and fabricated
+agents:
+
+```sh
+go run ./cmd/consolepreview -agents 18   # add -bare for a machine with no shim
+open http://localhost:8765
+```

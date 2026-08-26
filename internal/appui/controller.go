@@ -226,3 +226,64 @@ func (c *Controller) Find(pid int, session string) (registry.Agent, bool) {
 	}
 	return registry.Agent{}, false
 }
+
+// Action is what the caller must do once a command from the page has been
+// applied: repaint, and possibly something the controller cannot do itself.
+type Action struct {
+	// Repaint means the snapshot changed and the page should be pushed a
+	// new frame now, rather than waiting up to a second for the poll.
+	Repaint bool
+
+	// Kind is "focus", "stop", "quit", or "" when the command was fully
+	// handled here. Focus and stop carry the agent they refer to.
+	Kind      string
+	PID       int
+	SessionID string
+}
+
+// Handle applies one command from the page.
+//
+// It lives here rather than in the window so the bridge's message shape is
+// testable without a Mac, a cgo build, or a WKWebView: the field names below
+// are a contract with assets/console.js, and nothing else checks that the
+// two agree.
+//
+// An unrecognised command is ignored rather than treated as an error. The
+// page and the binary are always built together, so a message this build
+// does not know is a bug, not an attack - but the parse still has to be
+// total, because a malformed one must not take the window down.
+func (c *Controller) Handle(raw string) Action {
+	var m struct {
+		Cmd       string `json:"cmd"`
+		Key       string `json:"key"`
+		Q         string `json:"q"`
+		On        bool   `json:"on"`
+		Value     string `json:"value"`
+		Rows      int    `json:"rows"`
+		PID       int    `json:"pid"`
+		SessionID string `json:"sessionId"`
+	}
+	if err := json.Unmarshal([]byte(raw), &m); err != nil {
+		return Action{}
+	}
+	switch m.Cmd {
+	case "hello":
+		// The page has run its script and can be pushed to.
+		return Action{Repaint: true}
+	case "sort":
+		return Action{Repaint: c.SetSort(m.Key)}
+	case "filter":
+		return Action{Repaint: c.SetFilter(m.Q)}
+	case "group":
+		return Action{Repaint: c.SetGrouped(m.On)}
+	case "density":
+		return Action{Repaint: c.SetDensity(m.Value)}
+	case "capacity":
+		return Action{Repaint: c.SetCapacity(m.Rows)}
+	case "focus", "stop":
+		return Action{Kind: m.Cmd, PID: m.PID, SessionID: m.SessionID}
+	case "quit":
+		return Action{Kind: "quit"}
+	}
+	return Action{}
+}

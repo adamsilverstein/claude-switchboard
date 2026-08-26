@@ -3,126 +3,156 @@
 package main
 
 import (
-	"encoding/base64"
+	"encoding/json"
 	"fmt"
-	"os"
-	"os/exec"
 	"sync"
-	"syscall"
+	"time"
 
-	"github.com/creack/pty"
 	webview "github.com/webview/webview_go"
+
+	"github.com/adamsilverstein/claude-switchboard/internal/appui"
 )
 
-// runApp opens the picker in its own native window: a WKWebView rendering
-// xterm.js, with this same binary's TUI (the no-argument mode) running
-// behind it on a pty. The app gets its own Dock icon and cmd-tab entry,
-// which is the whole point - switching back to the picker no longer means
-// hunting for the right iTerm tab.
+// runApp opens the Console in its own native window: a WKWebView rendering
+// the page from internal/appui, fed a JSON snapshot once a second. The app
+// gets its own Dock icon and cmd-tab entry, which is the whole point -
+// switching back to the picker no longer means hunting for the right iTerm
+// tab.
+//
+// The terminal picker is untouched by any of this. `switchboard` with no
+// arguments is the same Bubble Tea program it always was; the two front ends
+// meet only in internal/ui, whose filter and sort both of them call.
 func runApp(args []string) error {
 	if len(args) != 0 {
 		return fmt.Errorf("app takes no arguments")
 	}
 
-	exe, err := os.Executable()
+	src, err := newAppSource()
 	if err != nil {
 		return fmt.Errorf("app: %w", err)
 	}
-
-	// Re-exec ourselves with no arguments: the ordinary TUI, unchanged.
-	cmd := exec.Command(exe)
-	cmd.Env = append(os.Environ(),
-		"TERM=xterm-256color",
-		"COLORTERM=truecolor",
-	)
-	ptmx, err := pty.StartWithSize(cmd, &pty.Winsize{Rows: 24, Cols: 80})
+	prefs, err := appui.DefaultPrefsPath()
 	if err != nil {
-		return fmt.Errorf("app: start tui: %w", err)
+		return fmt.Errorf("app: %w", err)
 	}
+	control := appui.New(prefs)
 
 	w := webview.New(false)
 	defer w.Destroy()
 	w.SetTitle("Switchboard")
-	w.SetSize(1000, 620, webview.HintNone)
+	w.SetSize(1240, 820, webview.HintNone)
+	w.SetSize(980, 640, webview.HintMin)
 
-	// Pty output can arrive before the page has built its terminal, so
-	// chunks are buffered until the page calls ptyReady.
+	// The page is only ready to be pushed to once its script has run, so
+	// frames before that are dropped rather than queued: a snapshot is a
+	// whole picture of now, and a stale one is worth nothing.
 	var (
-		mu      sync.Mutex
-		ready   bool
-		pending []byte
+		mu    sync.Mutex
+		ready bool
 	)
-	emit := func(chunk []byte) {
-		w.Eval("__ptyOut(\"" + base64.StdEncoding.EncodeToString(chunk) + "\")")
-	}
-
-	// Bound callbacks run on the main (UI) thread, so they may call Eval
-	// directly; the pty reader goroutine below must go through Dispatch.
-	if err := w.Bind("ptyInput", func(data string) {
-		_, _ = ptmx.WriteString(data)
-	}); err != nil {
-		return fmt.Errorf("app: %w", err)
-	}
-	if err := w.Bind("ptyResize", func(cols, rows int) {
-		if cols > 0 && rows > 0 {
-			_ = pty.Setsize(ptmx, &pty.Winsize{Rows: uint16(rows), Cols: uint16(cols)})
+	push := func(s appui.Snapshot) {
+		raw, err := json.Marshal(s)
+		if err != nil {
+			return
 		}
-	}); err != nil {
-		return fmt.Errorf("app: %w", err)
-	}
-	if err := w.Bind("ptyReady", func() {
-		mu.Lock()
-		ready = true
-		buf := pending
-		pending = nil
-		mu.Unlock()
-		if len(buf) > 0 {
-			emit(buf)
+		arg, err := json.Marshal(string(raw))
+		if err != nil {
+			return
 		}
-	}); err != nil {
-		return fmt.Errorf("app: %w", err)
+		w.Dispatch(func() { w.Eval("window.__snapshot && window.__snapshot(" + string(arg) + ")") })
+	}
+	notice := func(text string, alert bool) {
+		msg, err := json.Marshal(text)
+		if err != nil {
+			return
+		}
+		w.Dispatch(func() {
+			w.Eval(fmt.Sprintf("window.__notice && window.__notice(%s, %t)", msg, alert))
+		})
 	}
 
-	// cmd-q, forwarded by the page: this window has no menu bar, so the
-	// shortcut has to come back through the bridge. Terminate is queued
-	// rather than called inline so the window tears down after this
-	// callback returns, not during it.
-	if err := w.Bind("quitApp", func() {
-		w.Dispatch(w.Terminate)
-	}); err != nil {
-		return fmt.Errorf("app: %w", err)
-	}
-
-	go func() {
-		buf := make([]byte, 32*1024)
-		for {
-			n, readErr := ptmx.Read(buf)
-			if n > 0 {
-				chunk := append([]byte(nil), buf[:n]...)
-				mu.Lock()
-				if !ready {
-					pending = append(pending, chunk...)
-					mu.Unlock()
-				} else {
-					mu.Unlock()
-					w.Dispatch(func() { emit(chunk) })
-				}
+	if err := w.Bind("cmd", func(raw string) {
+		switch act := control.Handle(raw); act.Kind {
+		case "":
+			// Any command at all proves the page has run its
+			// script and can be pushed to.
+			mu.Lock()
+			ready = true
+			mu.Unlock()
+			if act.Repaint {
+				push(control.Snapshot(time.Now()))
 			}
-			if readErr != nil {
-				// The TUI exited (q inside the picker, or a crash);
-				// close the window with it.
-				w.Dispatch(w.Terminate)
+		case "quit":
+			w.Dispatch(w.Terminate)
+		default:
+			// Focus takes AppleScript and stop takes a fresh
+			// liveness check, so both run off the UI thread: the
+			// window must not sit frozen while iTerm is raised.
+			go perform(control, act, notice)
+		}
+	}); err != nil {
+		return fmt.Errorf("app: %w", err)
+	}
+
+	done := make(chan struct{})
+	go func() {
+		ticker := time.NewTicker(pollInterval)
+		defer ticker.Stop()
+		for {
+			now := time.Now()
+			rows, err := src.rows()
+			control.SetRows(rows, src.account(now), err, now)
+			mu.Lock()
+			up := ready
+			mu.Unlock()
+			if up {
+				push(control.Snapshot(now))
+			}
+			select {
+			case <-done:
 				return
+			case <-ticker.C:
 			}
 		}
 	}()
 
-	w.SetHtml(appHTML())
+	w.SetHtml(appui.Page())
 	w.Run()
-
-	// The window is gone, via either path: make sure the TUI is too.
-	_ = cmd.Process.Signal(syscall.SIGTERM)
-	_ = ptmx.Close()
-	_ = cmd.Wait()
+	close(done)
 	return nil
+}
+
+// pollInterval matches the terminal picker's. No AppleScript runs on this
+// path: window resolution stays lazy, on focus.
+const pollInterval = time.Second
+
+// perform carries out a focus or a stop and reports back through the notice
+// line.
+//
+// The session id travels with the PID for a reason. registry.SameProcess's
+// own doc comment warns that a caller about to focus or signal must re-check
+// against a fresh snapshot, because the PID may have been reused since the
+// scan. Matching on both means a click on a row whose agent has since exited
+// finds nothing rather than finding whatever took its number.
+func perform(control *appui.Controller, act appui.Action, notice func(string, bool)) {
+	agent, ok := control.Find(act.PID, act.SessionID)
+	if !ok {
+		notice("agent is gone", true)
+		return
+	}
+	switch act.Kind {
+	case "focus":
+		desc, err := focusAgent(agent)
+		if err != nil {
+			notice("focus failed: "+err.Error(), true)
+			return
+		}
+		notice("focused "+desc, false)
+	case "stop":
+		if err := stopAgent(agent); err != nil {
+			notice("stop failed: "+err.Error(), true)
+			return
+		}
+		notice(fmt.Sprintf("sent SIGTERM to %s", agent.Name), false)
+	}
 }

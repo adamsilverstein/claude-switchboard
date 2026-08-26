@@ -17,17 +17,12 @@ type Builder struct {
 	ProjectsDir   string     // ~/.claude/projects
 	StatuslineDir string     // ~/.claude/switchboard/statusline
 	Git           *git.Cache // may be nil, in which case no repository info
-	TTYs          func() map[int]string
 }
 
 // Rows enriches agents with everything the app window can learn about them.
 // Nothing here blocks: the transcript read is bounded, the statusline files
 // are small, and the git cache answers from memory and refreshes behind us.
-func (b Builder) Rows(agents []registry.Agent, name func(registry.Agent, activity.Activity) string) []ui.Row {
-	var ttys map[int]string
-	if b.TTYs != nil {
-		ttys = b.TTYs()
-	}
+func (b Builder) Rows(agents []registry.Agent, ttys map[int]string, name func(registry.Agent, activity.Activity) string) []ui.Row {
 	rows := make([]ui.Row, 0, len(agents))
 	for _, a := range agents {
 		act := activity.For(b.ProjectsDir, a.Cwd, a.SessionID)

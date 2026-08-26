@@ -16,13 +16,22 @@ import (
 
 // scanAgents reads the registry and marks liveness in one ps round trip.
 func scanAgents() ([]registry.Agent, error) {
+	agents, _, err := scanAgentsWithProcs()
+	return agents, err
+}
+
+// scanAgentsWithProcs is scanAgents plus what ps reported, for callers that
+// want the controlling terminals too. The tty comes free from the call
+// liveness already makes; asking for it separately would mean a second
+// registry read and a second ps every poll.
+func scanAgentsWithProcs() ([]registry.Agent, map[int]locate.Proc, error) {
 	dir, err := registry.DefaultDir()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	agents, err := registry.Scan(dir)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	pids := make([]int, len(agents))
 	for i, a := range agents {
@@ -30,14 +39,14 @@ func scanAgents() ([]registry.Agent, error) {
 	}
 	procs, err := locate.Snapshot(pids)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	starts := make(map[int]time.Time, len(procs))
 	for pid, p := range procs {
 		starts[pid] = p.Start
 	}
 	registry.CheckLiveness(agents, starts)
-	return agents, nil
+	return agents, procs, nil
 }
 
 // onScreen drops agents that are running but displayed nowhere: headless SDK
