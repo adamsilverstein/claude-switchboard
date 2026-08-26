@@ -6,6 +6,9 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+
+	"github.com/adamsilverstein/claude-switchboard/internal/registry"
+	"github.com/adamsilverstein/claude-switchboard/internal/ui"
 )
 
 func loaded(t *testing.T) *Controller {
@@ -155,4 +158,59 @@ func controllerSource(t *testing.T) string {
 		t.Fatal("Handle not found in controller.go")
 	}
 	return string(raw)[i:]
+}
+
+// The list is drawn as a band per status, but the cursor walks the rows in
+// the order Go sorted them. If the two orders disagree, arrowing down out of
+// the top band lands somewhere further down the screen, skipping a whole band
+// and then jumping back up - so the band order is read out of console.js and
+// checked against the order SortRows actually produces.
+func TestBandOrderMatchesTheSortOrder(t *testing.T) {
+	m := regexp.MustCompile(`const STATUS_ORDER = \[([^\]]*)\]`).
+		FindStringSubmatch(string(mustRead("assets/console.js")))
+	if m == nil {
+		t.Fatal("no STATUS_ORDER in console.js; the pattern needs updating")
+	}
+	var bands []string
+	for _, q := range regexp.MustCompile(`"(\w*)"`).FindAllStringSubmatch(m[1], -1) {
+		bands = append(bands, q[1])
+	}
+	if len(bands) == 0 {
+		t.Fatal("STATUS_ORDER parsed as empty; the pattern needs updating")
+	}
+	// The two bands console.js appends after the named ones: a status it
+	// does not know, and the ended rows.
+	bands = append(bands, "", "dead")
+
+	// One row per status the page can be handed, deliberately out of
+	// order, and each with the shape statusWord derives that status from.
+	rows := []ui.Row{
+		{Agent: registry.Agent{PID: 1, Status: "busy", Live: true}},
+		{Agent: registry.Agent{PID: 2, Status: "idle"}}, // not live: dead
+		{Agent: registry.Agent{PID: 3, Status: "mystery", Live: true}},
+		{Agent: registry.Agent{PID: 4, Status: "shell", Live: true}},
+		{Agent: registry.Agent{PID: 5, Status: "idle", Live: true}},
+		{Agent: registry.Agent{PID: 6, Status: "idle", Live: true}, Telemetry: ui.Telemetry{Waiting: true}},
+	}
+	ui.SortRows(rows, ui.SortStatus)
+
+	named := map[string]bool{}
+	for _, b := range bands {
+		named[b] = true
+	}
+	var sorted []string
+	for _, r := range rows {
+		// A status console.js does not name lands in the band it
+		// labels "Unknown", whose key is the empty string.
+		w := statusWord(r)
+		if !named[w] {
+			w = ""
+		}
+		sorted = append(sorted, w)
+	}
+	// Every status is represented once, so the sorted sequence is the
+	// band order or the two disagree.
+	if strings.Join(sorted, ",") != strings.Join(bands, ",") {
+		t.Errorf("console.js bands\n\t%v\nbut SortRows orders them\n\t%v", bands, sorted)
+	}
 }

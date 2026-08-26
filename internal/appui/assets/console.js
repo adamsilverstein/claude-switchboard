@@ -11,9 +11,14 @@
 
 const $ = (id) => document.getElementById(id);
 
-const STATUS_ORDER = ["waiting", "busy", "idle", "shell", "dead"];
+// The bands run in the order Go sorted the rows - statusRank in
+// internal/ui/model.go, checked by a test that reads this line. The cursor
+// walks the list in Go's order, so a band drawn out of that order sends the
+// selection jumping up the screen past rows it never landed on.
+const STATUS_ORDER = ["waiting", "idle", "busy", "shell"];
+const ENDED = "dead";
 const BAND_LABEL = { waiting: "Needs you", busy: "Working", idle: "Idle", shell: "Shell", dead: "Ended" };
-const QUEUE = ["waiting", "busy", "idle", "dead"];
+const QUEUE = ["waiting", "idle", "busy", "dead"];
 const SORT_KEYS = [
   ["status", "Status"], ["age", "Age"], ["context", "Context"],
   ["name", "Name"], ["repo", "Repo"], ["dir", "Dir"],
@@ -52,7 +57,7 @@ const state = {
   generation: 0,
   cursor: null,          // {pid, sessionId} - survives re-sorts and re-polls
   queue: null,           // status filtering from the sidebar, or null
-  collapsed: new Set(["dead"]),
+  collapsed: new Set([ENDED]),
   capacity: 0,
   readoutH: 0,      // measured; the stylesheet's estimate until then
   typing: false,
@@ -280,20 +285,24 @@ function renderList(s) {
     for (const a of rows) list.append(rowEl(a, cur, s));
     return;
   }
-  for (const status of STATUS_ORDER) {
-    const group = rows.filter((a) => a.status === status);
-    if (!group.length) continue;
+  for (const [status, group] of bands(rows)) {
     list.append(bandEl(status, group.length));
     if (state.collapsed.has(status)) continue;
     for (const a of group) list.append(rowEl(a, cur, s));
   }
-  // A status the design did not name still has to appear; an unrecognised
-  // status must never make an agent invisible.
-  const rest = rows.filter((a) => !STATUS_ORDER.includes(a.status));
-  if (rest.length) {
-    list.append(bandEl("", rest.length));
-    for (const a of rest) list.append(rowEl(a, cur, s));
-  }
+}
+
+// bands splits the rows into the blocks the list draws, in the order Go put
+// them in. A status the design did not name still gets a band; an
+// unrecognised status must never make an agent invisible, and Go ranks it
+// behind every named live status and ahead of the ended rows.
+function bands(rows) {
+  const out = [];
+  const band = (status, group) => { if (group.length) out.push([status, group]); };
+  for (const status of STATUS_ORDER) band(status, rows.filter((a) => a.status === status));
+  band("", rows.filter((a) => a.status !== ENDED && !STATUS_ORDER.includes(a.status)));
+  band(ENDED, rows.filter((a) => a.status === ENDED));
+  return out;
 }
 
 const BAND_COLOUR = {
@@ -306,8 +315,8 @@ function bandEl(status, n) {
   const label = el("span", null, (BAND_LABEL[status] || "Unknown") + " · " + n);
   label.style.color = BAND_COLOUR[status] || "var(--muted)";
   b.append(label);
-  if (status === "dead") {
-    b.append(el("span", "hint", state.collapsed.has("dead")
+  if (status === ENDED) {
+    b.append(el("span", "hint", state.collapsed.has(ENDED)
       ? "collapsed - press e to expand"
       : "press e to collapse"));
     b.onclick = toggleEnded;
@@ -579,8 +588,8 @@ function stopAgent() {
 }
 
 function toggleEnded() {
-  if (state.collapsed.has("dead")) state.collapsed.delete("dead");
-  else state.collapsed.add("dead");
+  if (state.collapsed.has(ENDED)) state.collapsed.delete(ENDED);
+  else state.collapsed.add(ENDED);
   render();
 }
 
