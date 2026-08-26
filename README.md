@@ -43,7 +43,7 @@ yesterday. Unlike tmux managers, it sees every agent regardless of how it was
 launched - bare iTerm windows, tmux panes, background and SDK sessions - and
 joins each one to the operating-system window it is sitting in.
 
-![The Switchboard app window listing four live Claude Code agents - one idle, three busy - each with its status dot, age, name, and a one-line summary of what it is doing](assets/screenshot.png)
+![The Switchboard app window: nine Claude Code agents grouped into Needs you, Working, Idle and Shell, each row carrying its status, age, name, context-window meter, repository and branch, the pull request it is on, and a one-line summary. A sidebar counts the queues and the repositories; a readout below the list expands the selected agent](assets/screenshot.png)
 
 ## Install
 
@@ -159,7 +159,7 @@ script and three vendored typefaces, all embedded in the binary, no network
 of any kind and no node toolchain. It shows the same agents the terminal
 picker does, laid out to answer the questions a terminal column cannot: which
 agent is waiting on you, how full its context window is, which model it is
-on, how long it has been running.
+on, how long it has been running, and which pull request it is working on.
 
 Filtering and sorting happen in the same Go functions the terminal picker
 calls, so the two cannot disagree about what "sorted by status" means.
@@ -170,12 +170,25 @@ you" is derived rather than reported: an idle agent whose last transcript
 entry is its own reply has finished its turn and handed control back. Ended
 agents stay listed, collapsed, and are never dropped.
 
+The **PR / Issue** column asks GitHub what the agent's branch belongs to and
+shows the number beside its state - open, draft, merged, closed. Clicking the
+number opens it in your browser. It needs the [`gh`
+CLI](https://cli.github.com) on your `PATH` and logged in; without it the
+column is simply absent, like every other column with nothing behind it. A
+branch with no pull request of its own falls back to an issue number in the
+branch name (`1234-retry-on-429`, `issue-11`), and an agent sitting on a
+trunk shows nothing, because a trunk is not a piece of work.
+
+Asking costs a `gh` call per repository, so the answers are cached for two
+minutes and fetched off the poll loop; nothing in the window ever waits on
+the network.
+
 Density follows the window, not the agent count: the page measures how many
 rows it can show and switches to compact when they stop fitting. Compact and
 Comfy, and Grouped and Flat, are also yours to set, and the choice persists.
 
 Keys: arrows or `j`/`k` move, `enter` focuses, `/` filters across name,
-directory, repository, model and summary, `s`/`a`/`c`/`n`/`r`/`d` sort by
+directory, repository, model, pull request and summary, `s`/`a`/`c`/`n`/`r`/`d` sort by
 status, age, context, name, repo or directory, `e` expands the Ended group,
 `ctrl+x` (then `y`) stops an agent with SIGTERM, `cmd-1` hides the sidebar,
 `q` or `cmd-q` quits. Clicking a row selects it, double-clicking focuses it,
@@ -286,7 +299,8 @@ go build ./cmd/switchboard
 The layout follows the design in issue #1: `internal/registry` (scan and
 liveness), `internal/activity` (transcript tail and the telemetry in it),
 `internal/locate` (pid to tty), `internal/target` (window resolution and
-focus), `internal/git` (repository name and dirty flag, cached),
+focus), `internal/git` (repository, branch and dirty flag, cached),
+`internal/forge` (the branch's pull request or issue, via `gh`, cached),
 `internal/statusline` (the opt-in shim's files), `internal/ui` (the Bubble
 Tea picker, and the filter and sort both front ends share), and
 `internal/appui` (the app window's page and the state behind it).
