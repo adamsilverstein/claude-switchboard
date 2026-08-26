@@ -70,17 +70,26 @@ func main() {
 
 // bridge stands in for the WKWebView bindings: cmd() posts and applies
 // whatever snapshot comes back, which is exactly what the real window does.
+//
+// It deliberately does not kick off the first frame. The page announces
+// itself, and letting the preview do it instead would hide a page that had
+// stopped announcing - which is exactly what it did hide once.
 const bridge = `<script>
 async function cmd(json) {
   const res = await fetch("/cmd", { method: "POST", body: json });
   window.__snapshot(JSON.stringify(await res.json()));
 }
-cmd(JSON.stringify({ cmd: "hello" }));
 </script>
 `
 
+// The fixture is deliberately awkward. A tidy one hid a real bug once: every
+// fabricated name happened to fit its column, so a name that did not clip
+// looked identical to one that did, and the overflow only showed up against
+// live agents. At least one of everything here is too long for its space.
 var (
 	names = []string{
+		`Redesign the app window: "Console" layout with live session telemetry #11`,
+		"Notes: Open a full searchable emoji picker from the add-reaction button (stacked on #76767) #78176",
 		"Suggest mode 1/9: editor intent #80427", "Client Side Media iteration for WP 7.2 #80159",
 		"README improvements", "Command-q quit command", "Image block hides Resolution #81902",
 		"Console redesign spec", "Focus multi-monitor fix", "Interactivity API audit",
@@ -96,7 +105,7 @@ var (
 		"Done — PR #81938 merged, issue closed.",
 	}
 	statuses = []string{"idle", "busy", "busy", "idle", "idle", "busy", "shell", "idle"}
-	repos    = []string{"gutenberg", "wordpress-develop", "switchboard", "media-experiments"}
+	repos    = []string{"gutenberg", "add-notes-emoji-reactions-picker", "switchboard", "media-experiments"}
 	branches = []string{"trunk", "main", "trunk", "feature/x"}
 	models   = []string{"Opus 5", "Opus 5", "Sonnet 4.6", "Sonnet 4.6", "Opus 5"}
 	windows  = []int{1_000_000, 1_000_000, 200_000, 200_000, 1_000_000}

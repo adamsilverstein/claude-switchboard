@@ -646,5 +646,18 @@ window.addEventListener("resize", () => {
   reportCapacity();
 });
 
+// Announce the page to whatever is hosting it. Nothing else tells the window
+// that a frame would land anywhere, so until this arrives it holds them back
+// - and a page that never announced would sit empty forever.
+//
+// It repeats until the first frame answers. The bridge may not be bound at
+// the moment this file runs, and there is no event that says when it is.
+function announce() {
+  if (state.snap) return;
+  send({ cmd: "hello" });
+  setTimeout(announce, 200);
+}
+announce();
+
 // The clock in "polled Ns ago" has to keep moving between polls.
 setInterval(() => { if (state.snap) renderSidebar(state.snap); }, 1000);

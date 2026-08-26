@@ -110,9 +110,13 @@ func TestBridgeCommandsMatchThePage(t *testing.T) {
 	if len(sent) == 0 {
 		t.Fatal("found no commands in console.js; the pattern needs updating")
 	}
-	// hello comes from the window's own bootstrap rather than from a
-	// send() call in the page, so the scan above will not find it.
-	sent["hello"] = true
+	// hello is not excused here. The page has to send it: nothing else
+	// tells the window a frame would land anywhere, and a version of this
+	// test that assumed the bootstrap sent it let a page ship that never
+	// announced itself and so never showed a single agent.
+	if !sent["hello"] {
+		t.Error("console.js never sends hello; the window will hold every frame back")
+	}
 
 	// One case can label several commands ("focus", "stop"), so take
 	// every quoted word on a case line rather than just the first.
