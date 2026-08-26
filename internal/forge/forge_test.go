@@ -193,6 +193,21 @@ func TestIssueFromBranch(t *testing.T) {
 		{"", 0},
 		{"0-nothing", 0},
 		{"release/6.9", 0},
+
+		// Dates. A branch cut on a day names the day, and the number
+		// it would otherwise yield is one the repository really has.
+		{"2024-01-15-notes-cleanup", 0},
+		{"2024-01-15", 0},
+		{"12-31-2024-fix", 0},
+		{"20250805-hotfix", 0},
+		{"2025_08_05_notes", 0},
+
+		// Still a ticket, though: two of these open with four digits
+		// and one of them is longer than any issue number.
+		{"1234-retry", 1234},
+		{"2024-notes", 2024},
+		{"123456-wide", 123456},
+		{"1234567-too-wide", 0},
 	}
 	for _, c := range cases {
 		if got := issueFromBranch(c.branch); got != c.want {

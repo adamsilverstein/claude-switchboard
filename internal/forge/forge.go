@@ -246,7 +246,8 @@ func issue(out string) Ref {
 // The rule: in the last path component, either a leading run of digits, or a
 // run of digits directly after "issue" or "gh", and in both cases the digits
 // must end the component or be followed by a dash or an underscore. A dot is
-// not a separator here, so "release/6.9" is a version and not issue 6.
+// not a separator here, so "release/6.9" is a version and not issue 6, and a
+// component that opens with a date is a day and not a ticket.
 func issueFromBranch(branch string) int {
 	name := branch
 	if i := strings.LastIndex(name, "/"); i >= 0 {
@@ -254,6 +255,9 @@ func issueFromBranch(branch string) int {
 	}
 	name = strings.ToLower(name)
 
+	if datePrefix(name) {
+		return 0
+	}
 	if n, rest, ok := leadingDigits(name); ok && (rest == "" || isSep(rest[0])) {
 		return n
 	}
@@ -272,12 +276,18 @@ func issueFromBranch(branch string) int {
 	return 0
 }
 
+// maxIssueDigits bounds the run of digits an issue number may be. The
+// busiest repositories on GitHub are in the hundreds of thousands of issues,
+// so six digits is already generous, and eight is a date: "20250805-hotfix"
+// is a branch cut on a day, not a branch for issue 20,250,805.
+const maxIssueDigits = 6
+
 func leadingDigits(s string) (int, string, bool) {
 	i := 0
 	for i < len(s) && s[i] >= '0' && s[i] <= '9' {
 		i++
 	}
-	if i == 0 {
+	if i == 0 || i > maxIssueDigits {
 		return 0, s, false
 	}
 	n, err := strconv.Atoi(s[:i])
@@ -288,3 +298,40 @@ func leadingDigits(s string) (int, string, bool) {
 }
 
 func isSep(b byte) bool { return b == '-' || b == '_' }
+
+// datePrefix reports whether the component opens with a date: three runs of
+// digits, separated by dashes or underscores, one of the outer two a year.
+// "2024-01-15-notes-cleanup" would otherwise read as issue 2024 - a real
+// number, and in a busy repository a real issue, attached to an agent that
+// has nothing to do with it. That is worse than an empty cell.
+func datePrefix(name string) bool {
+	rest := name
+	var groups []string
+	for len(groups) < 3 {
+		n, tail, ok := digitRun(rest)
+		if !ok {
+			return false
+		}
+		groups, rest = append(groups, n), tail
+		if len(groups) < 3 {
+			if rest == "" || !isSep(rest[0]) {
+				return false
+			}
+			rest = rest[1:]
+		}
+	}
+	if rest != "" && !isSep(rest[0]) {
+		return false
+	}
+	return len(groups[0]) == 4 || len(groups[2]) == 4
+}
+
+// digitRun splits a leading run of digits off s, without the length bound
+// leadingDigits applies: a date is recognised by its shape, not its size.
+func digitRun(s string) (string, string, bool) {
+	i := 0
+	for i < len(s) && s[i] >= '0' && s[i] <= '9' {
+		i++
+	}
+	return s[:i], s[i:], i > 0
+}
