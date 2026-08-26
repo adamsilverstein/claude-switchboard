@@ -149,11 +149,11 @@ function render() {
   if (!s) return;
   document.body.classList.toggle("compact", s.compact);
   // A column no agent on this machine can fill leaves the table. Without
-  // the statusline shim that is the whole context column, and without a
-  // readable transcript it is the model column too.
-  document.body.classList.toggle("no-model", !s.agents.some((a) => a.model));
+  // the statusline shim that is the whole context column, and without gh -
+  // or without a branch that has a pull request - it is the ref column too.
   document.body.classList.toggle("no-context",
     !s.agents.some((a) => a.contextPct !== null && a.contextPct !== undefined));
+  document.body.classList.toggle("no-ref", !s.agents.some((a) => a.ref));
   renderSidebar(s);
   renderToolbar(s);
   renderList(s);
@@ -332,9 +332,9 @@ function rowEl(a, cur, s) {
   if (sub) nameCell.append(line("sub ellipsis", sub));
   r.append(nameCell);
 
-  r.append(line("model ellipsis", modelLabel(a)));
   r.append(ctxCell(a));
   r.append(line("repo ellipsis", repoLabel(a) || "—"));
+  r.append(refCell(a));
   r.append(line("summary ellipsis", a.summary || ""));
 
   r.onclick = () => { state.cursor = { pid: a.pid, sessionId: a.sessionId }; render(); };
@@ -342,11 +342,35 @@ function rowEl(a, cur, s) {
   return r;
 }
 
-// The model column carries its context window with it: "Sonnet 4.6" and
-// "Sonnet 4.6 · 1M" are meaningfully different sessions.
-function modelLabel(a) {
-  if (!a.model) return "—";
-  return a.contextWindow ? a.model + " · " + a.contextWindow : a.model;
+// The ref column is the piece of work an agent is on, not the machinery it
+// is on it with: the number identifies it, and the state is what says
+// whether it is still in front of you or already behind you.
+//
+// The number is a button because a pull request you can see but not open is
+// half an answer. It stops the click from reaching the row so that opening
+// a pull request does not also move the cursor.
+function refCell(a) {
+  const c = el("span", "ref");
+  if (!a.ref) {
+    c.append(line("num none", "—"));
+    return c;
+  }
+  const n = el("button", "num", a.ref);
+  n.type = "button";
+  n.title = refTitle(a);
+  if (a.refUrl) {
+    n.onclick = (e) => { e.stopPropagation(); send({ cmd: "open", url: a.refUrl }); };
+  } else {
+    n.disabled = true;
+  }
+  c.append(n);
+  if (a.refState) c.append(el("i", "state s-" + a.refState, a.refState));
+  return c;
+}
+
+function refTitle(a) {
+  const what = (a.refKind === "issue" ? "issue " : "pull request ") + a.ref;
+  return [what, a.refState, a.refTitle].filter(Boolean).join(" · ");
 }
 
 function repoLabel(a) {
@@ -439,7 +463,7 @@ function stripLine(a) {
   return [
     a.model,
     a.contextPct === null || a.contextPct === undefined ? "" : "ctx " + a.contextPct + "%",
-    a.elapsed, repoLabel(a), a.tty,
+    a.elapsed, repoLabel(a), a.ref ? a.ref + " " + a.refTitle : "", a.tty,
     a.permissionMode ? a.permissionMode + " mode" : "",
   ].filter(Boolean).join(" · ");
 }
@@ -460,6 +484,17 @@ function sessionCell(a) {
   if (a.repo) {
     const l = line("line", a.repo);
     if (a.branch) l.append(line("branch", " git:(" + a.branch + (a.dirty ? "*" : "") + ")"));
+    c.append(l);
+  }
+  if (a.ref) {
+    const l = line("line", "");
+    const n = el("button", "num", a.ref);
+    n.type = "button";
+    n.title = refTitle(a);
+    if (a.refUrl) n.onclick = () => send({ cmd: "open", url: a.refUrl });
+    else n.disabled = true;
+    l.append(n);
+    if (a.refTitle) l.append(line("dim", " " + a.refTitle));
     c.append(l);
   }
   if (a.elapsed) c.append(line("line soft", "elapsed " + a.elapsed));

@@ -54,8 +54,10 @@
   /* A column with nothing behind it on this machine collapses to nothing
    * rather than printing a dash on every row: a whole column of dashes
    * says "this is broken" where an absent column says "not here". */
-  --col-model: 132px;
   --col-context: 96px;
+  --col-repo: 160px;
+  --col-ref: 116px;
+  --col-summary: minmax(0, 1.25fr);
 }
 
 * { box-sizing: border-box; }
@@ -251,7 +253,8 @@ html, body {
 #head, .row {
   display: grid;
   grid-template-columns:
-    22px 78px 62px minmax(0, 1.5fr) var(--col-model) var(--col-context) minmax(0, 1.25fr);
+    22px 78px 62px minmax(0, 1.5fr) var(--col-context)
+    var(--col-repo) var(--col-ref) var(--col-summary);
   align-items: center;
   gap: 0 var(--col-gap);
   padding: var(--row-pad) 15px;
@@ -297,11 +300,11 @@ html, body {
 .row:hover { background: var(--panel); }
 .row .dot { font-size: 14px; line-height: 1; }
 .row .status { font-family: var(--cond); font-size: 15px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; }
-.row .age, .row .model, .row .repo { font-family: var(--mono); font-size: 11px; color: var(--secondary); }
+.row .age, .row .repo { font-family: var(--mono); font-size: 11px; color: var(--secondary); }
 .row .age { font-size: 12px; color: var(--muted); }
 /* The name and its subline are not grid items - they sit inside the name
  * cell - so nothing blockifies them, and text-overflow does nothing to an
- * inline box. That is why a long name ran straight over the model column
+ * inline box. That is why a long name ran straight over the context column
  * while the summary beside it, which is a grid item, clipped correctly. */
 .row .name-cell { display: flex; flex-direction: column; min-width: 0; }
 .row .name { display: block; min-width: 0; font-size: var(--name-size); font-weight: 500; }
@@ -324,7 +327,6 @@ html, body {
 .row[data-live="false"] .name,
 .row[data-live="false"] .status,
 .row[data-live="false"] .age,
-.row[data-live="false"] .model,
 .row[data-live="false"] .repo,
 .row[data-live="false"] .summary { color: var(--dead); font-weight: 400; }
 
@@ -334,7 +336,6 @@ html, body {
 .row[aria-selected="true"] .status,
 .row[aria-selected="true"] .dot,
 .row[aria-selected="true"] .age,
-.row[aria-selected="true"] .model,
 .row[aria-selected="true"] .repo,
 .row[aria-selected="true"] .ctx .pct { color: #fff; }
 .row[aria-selected="true"] .summary, .row[aria-selected="true"] .sub { color: var(--on-accent-dim); }
@@ -346,13 +347,68 @@ html, body {
  * so the keypress is acknowledged before anything else happens. */
 .row.flash { background: var(--accent); }
 
-.no-model { --col-model: 0px; }
+/* The pull request or issue. The number reads as a link because it is one -
+ * clicking it opens the pull request - and the state sits beside it in the
+ * colour the list already uses for that meaning. */
+.row .ref { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
+.row .ref .num {
+  flex: none;
+  border: 0;
+  padding: 0;
+  background: none;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--accent-ink);
+  cursor: pointer;
+}
+.row .ref .num:hover:not(:disabled) { text-decoration: underline; }
+.row .ref .num:disabled { color: var(--secondary); cursor: default; }
+.row .ref .num.none { color: var(--muted); }
+.row .ref .state {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--cond);
+  font-size: 10.5px;
+  font-style: normal;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+/* The same meanings the list already assigns these colours: green is work
+ * under way, red is work that stopped, and the accent is where it landed. */
+.row .ref .s-open { color: var(--busy); }
+.row .ref .s-draft { color: var(--muted); }
+.row .ref .s-merged { color: var(--accent-ink); }
+.row .ref .s-closed { color: var(--alert); }
+.row[data-live="false"] .ref .num, .row[data-live="false"] .ref .state { color: var(--dead); }
+.row[aria-selected="true"] .ref .num { color: #fff; }
+.row[aria-selected="true"] .ref .state { color: var(--on-accent-dim); }
+
+/* The readout repeats the number, so it gets the same affordance. */
+.cell .num {
+  border: 0;
+  padding: 0;
+  background: none;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--accent-ink);
+  cursor: pointer;
+}
+.cell .num:hover:not(:disabled) { text-decoration: underline; }
+.cell .num:disabled { color: var(--secondary); cursor: default; }
+
 .no-context { --col-context: 0px; }
+.no-ref { --col-ref: 0px; }
 /* visibility, not display: a grid child that is display:none is not placed
  * at all, and every column after it slides one to the left. */
-.no-model .model,
 .no-context .ctx,
-.no-context #head [data-sort="context"] { visibility: hidden; overflow: hidden; }
+.no-context #head [data-sort="context"],
+.no-ref .ref,
+.no-ref #head .ref { visibility: hidden; overflow: hidden; }
 .no-context #sortKeys [data-sort="context"] { display: none; }
 
 #empty { padding: 26px 15px; color: var(--muted); font-size: 13px; }
@@ -453,19 +509,17 @@ html, body {
 }
 .compact .row { border-bottom-color: var(--rule-compact); }
 .compact .row .status { font-family: var(--mono); font-size: 10.5px; font-weight: 500; letter-spacing: 0.04em; }
-.compact .row .summary, .compact .row .model { font-size: 12px; }
+.compact .row .summary { font-size: 12px; }
 
 /* -------------------------------------------------------- laptop, <1200 */
 
 @media (max-width: 1200px) {
-  :root { --sidebar: 186px; }
-  #head, .row {
-    grid-template-columns: 22px 78px 62px minmax(0, 1fr) var(--col-context);
-  }
+  :root { --sidebar: 186px; --col-summary: 0px; }
   /* MODEL and REPO fold into a subline under the name; SUMMARY leaves the
-   * table entirely - 484px of fixed columns leaves too little to split
-   * between it and the name. It survives in the readout. */
-  .row .model, .row .repo, .row .summary, #head .model, #head .repo, #head .summary { display: none; }
+   * table entirely - the fixed columns leave too little to split between it
+   * and the name. It survives in the readout. PR / ISSUE stays: it is the
+   * one column here that says what the agent is actually working on. */
+  .row .summary, #head .summary { visibility: hidden; overflow: hidden; }
   .row .sub { display: block; }
   .row .name-cell { min-width: 0; }
   /* The readout goes 2 x 2 here, so it costs roughly twice the height. */
@@ -494,17 +548,16 @@ html, body {
     --readout-h: 340px;
     --sidebar: 260px;
   }
-  #head, .row {
-    grid-template-columns:
-      22px 78px 62px minmax(0, 1.5fr) var(--col-model) var(--col-context) 160px minmax(0, 1.25fr);
-  }
   #filter { min-width: 420px; }
   /* Past ~2200 the drawing stops reading as one; cap and centre it. */
   #main > * { max-width: 2200px; width: 100%; margin-left: auto; margin-right: auto; }
   .cell { max-width: 480px; }
 }
+/* REPO is the first column to go when the table narrows: it is the one the
+ * name's subline already carries below 1200, and the readout always does. */
 @media (max-width: 1599px) {
-  .row .repo, #head .repo { display: none; }
+  :root { --col-repo: 0px; }
+  .row .repo, #head .repo { visibility: hidden; overflow: hidden; }
 }
 
 @media (prefers-reduced-motion: reduce) {
