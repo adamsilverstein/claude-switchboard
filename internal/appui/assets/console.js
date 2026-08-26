@@ -159,9 +159,12 @@ function render() {
   // A column no agent on this machine can fill leaves the table. Without
   // the statusline shim that is the whole context column, and without gh -
   // or without a branch that has a pull request - it is the ref column too.
-  document.body.classList.toggle("no-context",
-    !s.agents.some((a) => a.contextPct !== null && a.contextPct !== undefined));
-  document.body.classList.toggle("no-ref", !s.agents.some((a) => a.ref));
+  //
+  // Go counts that over every agent, not the ones the filter left: a column
+  // that vanished because your query happened to match only the agents
+  // without one would reflow the table under you as you typed.
+  document.body.classList.toggle("no-context", !s.anyContext);
+  document.body.classList.toggle("no-ref", !s.anyRef);
   renderSidebar(s);
   renderToolbar(s);
   renderList(s);

@@ -185,6 +185,14 @@ func (c *Controller) Snapshot(now time.Time) Snapshot {
 		Total:      len(c.rows),
 		Agents:     make([]AgentView, 0, len(rows)),
 	}
+	for _, r := range c.rows {
+		if _, ok := r.Telemetry.ContextPct(); ok {
+			s.AnyContext = true
+		}
+		if r.Telemetry.Ref.Label() != "" {
+			s.AnyRef = true
+		}
+	}
 	if c.err != nil {
 		s.Error = c.err.Error()
 	}

@@ -40,6 +40,19 @@ type Snapshot struct {
 	// Total is how many agents there are before the filter, so the page
 	// can say "3 of 18" rather than implying the rest stopped existing.
 	Total int `json:"total"`
+
+	// AnyContext and AnyRef say whether any agent on this machine can
+	// fill those columns at all - without the statusline shim none has a
+	// context reading, and without gh, or without a branch that has a
+	// pull request, none has a reference. The page drops the column when
+	// it is false.
+	//
+	// Both are counted before the filter. Deciding from the filtered
+	// rows instead would collapse a column the moment you typed
+	// something that happened to match only agents without one, and
+	// reflow the whole table on the next keystroke.
+	AnyContext bool `json:"anyContext"`
+	AnyRef     bool `json:"anyRef"`
 }
 
 // Account is the machine-wide usage the statusline shim records. Both

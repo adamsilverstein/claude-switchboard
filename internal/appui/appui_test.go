@@ -410,3 +410,44 @@ func TestGroupingOnlyAppliesToTheStatusSort(t *testing.T) {
 		t.Error("an explicit flat choice must be honoured")
 	}
 }
+
+// The page drops the context and reference columns when nothing on the
+// machine can fill them. That has to be counted over every agent: deciding
+// it from the rows the filter left would collapse a column the moment a
+// query happened to match only agents without one, and reflow the whole
+// table on the next keystroke.
+func TestColumnsAreDecidedBeforeTheFilter(t *testing.T) {
+	c := New(filepath.Join(t.TempDir(), "app.json"))
+	c.SetRows(rows(), Account{}, nil, now)
+
+	if s := c.Snapshot(now); !s.AnyContext || !s.AnyRef {
+		t.Fatalf("unfiltered: anyContext = %t, anyRef = %t, want both true", s.AnyContext, s.AnyRef)
+	}
+	// "README" is the one row with neither a context reading nor a
+	// reference, so the filtered list cannot answer either question.
+	c.SetFilter("README")
+	s := c.Snapshot(now)
+	if len(s.Agents) != 1 {
+		t.Fatalf("filter matched %d agents, want 1", len(s.Agents))
+	}
+	if s.Agents[0].ContextPct != nil || s.Agents[0].Ref != "" {
+		t.Fatalf("the fixture changed: %+v still fills a column", s.Agents[0])
+	}
+	if !s.AnyContext || !s.AnyRef {
+		t.Errorf("filtered: anyContext = %t, anyRef = %t; the columns went away with the filter",
+			s.AnyContext, s.AnyRef)
+	}
+}
+
+// Without the shim and without gh there is nothing to show, and the columns
+// should go rather than stand empty.
+func TestColumnsGoWhenNothingCanFillThem(t *testing.T) {
+	c := New(filepath.Join(t.TempDir(), "app.json"))
+	c.SetRows([]ui.Row{{
+		Agent: registry.Agent{PID: 9, SessionID: "s9", Status: "busy", Live: true},
+		Name:  "bare", Age: now,
+	}}, Account{}, nil, now)
+	if s := c.Snapshot(now); s.AnyContext || s.AnyRef {
+		t.Errorf("anyContext = %t, anyRef = %t, want both false", s.AnyContext, s.AnyRef)
+	}
+}
