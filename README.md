@@ -187,6 +187,14 @@ Density follows the window, not the agent count: the page measures how many
 rows it can show and switches to compact when they stop fitting. Compact and
 Comfy, and Grouped and Flat, are also yours to set, and the choice persists.
 
+Column widths are yours too. A faint divider sits between the headers; drag
+one to move the boundary between two columns, and double-click it to hand
+that column back to its default. A drag only takes what the flexible columns
+have to spare, so the table can never be pushed off its own right edge, and
+the widths persist alongside the other view choices. Open the same window on
+a narrower screen and the columns are trimmed to fit rather than spilling -
+widen it again and the shape you gave the table comes back.
+
 Keys: arrows or `j`/`k` move, `enter` focuses, `/` filters across name,
 directory, repository, model, pull request and summary, `s`/`a`/`c`/`n`/`r`/`d` sort by
 status, age, context, name, repo or directory, `e` expands the Ended group,

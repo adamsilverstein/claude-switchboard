@@ -50,9 +50,58 @@ type Prefs struct {
 	// should survive the list growing.
 	Density string `json:"density"`
 
+	// Columns are the header widths you have dragged. A table you have
+	// shaped to your own repositories is worth keeping for the same
+	// reason the sort is.
+	Columns Columns `json:"columns"`
+
 	// filter is deliberately not persisted: reopening the window to a
 	// list that silently hides most of your agents is a bad surprise.
 	filter string
+}
+
+// Columns are the table's header widths in pixels, one field per resizable
+// column. Zero means the column has never been dragged, and the stylesheet's
+// own width stands - which is the one that answers to how wide the window
+// is, so leaving it alone is a better default than writing a number down.
+//
+// A struct rather than a map so Prefs stays comparable, which is what lets
+// update() tell a real change from a repeated one. The field names are a
+// contract with the [data-col] boxes in assets/console.html; a test checks
+// that the two lists still agree.
+//
+// SUMMARY is deliberately absent. It is the column the others resize into,
+// so it has no divider of its own and never carries a width.
+type Columns struct {
+	Status  int `json:"status,omitempty"`
+	Age     int `json:"age,omitempty"`
+	Name    int `json:"name,omitempty"`
+	Context int `json:"context,omitempty"`
+	Repo    int `json:"repo,omitempty"`
+	Ref     int `json:"ref,omitempty"`
+}
+
+// minColumnPx is the narrowest a column may be stored at, and matches the
+// floor the page clamps a drag to. Below it a header has nothing left to
+// show, so a smaller number is not a width anyone dragged to.
+//
+// There is deliberately no maximum here. How wide a column may get depends
+// on how wide the window is, which is the one thing this side does not know:
+// six hundred pixels is absurd on a laptop and unremarkable on a 5K display.
+// The page owns that ceiling, and enforces it twice - a drag can only take
+// what the flexible columns have to give, and a width restored from a wider
+// screen is trimmed to what this one can spare.
+const minColumnPx = 44
+
+// sane returns c with every width too small to have been dragged to dropped
+// back to its default, which is what a zero means to the page.
+func (c Columns) sane() Columns {
+	for _, f := range []*int{&c.Status, &c.Age, &c.Name, &c.Context, &c.Repo, &c.Ref} {
+		if *f < minColumnPx {
+			*f = 0
+		}
+	}
+	return c
 }
 
 // New returns a controller, restoring preferences from path if it holds any.
@@ -69,6 +118,7 @@ func New(prefsPath string) *Controller {
 			if p.Sort == "" {
 				p.Sort = c.prefs.Sort
 			}
+			p.Columns = p.Columns.sane()
 			c.prefs = p
 		}
 	}
@@ -136,6 +186,11 @@ func (c *Controller) SetDensity(d string) bool {
 	return c.update(true, func(p *Prefs) { p.Density = d })
 }
 
+// SetColumns records the header widths the page has been dragged to.
+func (c *Controller) SetColumns(w Columns) bool {
+	return c.update(true, func(p *Prefs) { p.Columns = w.sane() })
+}
+
 func (c *Controller) update(persist bool, f func(*Prefs)) bool {
 	c.mu.Lock()
 	before := c.prefs
@@ -183,6 +238,7 @@ func (c *Controller) Snapshot(now time.Time) Snapshot {
 		Filter:     c.prefs.filter,
 		Grouped:    c.prefs.Grouped && key == ui.SortStatus,
 		Compact:    c.compactFor(len(rows)),
+		Columns:    c.prefs.Columns,
 		Account:    c.account,
 		Total:      len(c.rows),
 		Agents:     make([]AgentView, 0, len(rows)),
@@ -274,15 +330,16 @@ type Action struct {
 // total, because a malformed one must not take the window down.
 func (c *Controller) Handle(raw string) Action {
 	var m struct {
-		Cmd       string `json:"cmd"`
-		Key       string `json:"key"`
-		Q         string `json:"q"`
-		On        bool   `json:"on"`
-		Value     string `json:"value"`
-		Rows      int    `json:"rows"`
-		PID       int    `json:"pid"`
-		SessionID string `json:"sessionId"`
-		URL       string `json:"url"`
+		Cmd       string  `json:"cmd"`
+		Key       string  `json:"key"`
+		Q         string  `json:"q"`
+		On        bool    `json:"on"`
+		Value     string  `json:"value"`
+		Rows      int     `json:"rows"`
+		Widths    Columns `json:"widths"`
+		PID       int     `json:"pid"`
+		SessionID string  `json:"sessionId"`
+		URL       string  `json:"url"`
 	}
 	if err := json.Unmarshal([]byte(raw), &m); err != nil {
 		return Action{}
@@ -301,6 +358,11 @@ func (c *Controller) Handle(raw string) Action {
 		return Action{Repaint: c.SetDensity(m.Value)}
 	case "capacity":
 		return Action{Repaint: c.SetCapacity(m.Rows)}
+	case "columns":
+		// No repaint: the page has already moved the columns itself, and
+		// pushing a frame back would only redraw the rows underneath.
+		c.SetColumns(m.Widths)
+		return Action{}
 	case "focus", "stop":
 		return Action{Kind: m.Cmd, PID: m.PID, SessionID: m.SessionID}
 	case "open":

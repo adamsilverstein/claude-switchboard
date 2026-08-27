@@ -59,6 +59,15 @@ func TestHandleAppliesEveryCommandThePageSends(t *testing.T) {
 		t.Error("the first capacity report should repaint")
 	}
 
+	// Widths do not repaint: the page has already moved the columns
+	// itself, and a frame back would only redraw the rows underneath.
+	if act := c.Handle(`{"cmd":"columns","widths":{"status":120,"repo":200}}`); act.Repaint || act.Kind != "" {
+		t.Errorf("columns = %+v; want nothing to do", act)
+	}
+	if got := c.Snapshot(now).Columns; got != (Columns{Status: 120, Repo: 200}) {
+		t.Errorf("columns = %+v, want {Status:120 Repo:200}", got)
+	}
+
 	act := c.Handle(`{"cmd":"focus","pid":1,"sessionId":"s1"}`)
 	if act.Kind != "focus" || act.PID != 1 || act.SessionID != "s1" {
 		t.Errorf("focus = %+v, want {focus 1 s1}", act)
@@ -289,4 +298,68 @@ func jsFunc(t *testing.T, js, name string) string {
 	}
 	t.Fatalf("function %s is never closed", name)
 	return ""
+}
+
+// The columns exist in three places at once: [data-col] in console.html says
+// which they are and what order they are in, the stylesheet sizes each with
+// a --col-<name> variable, and Columns above remembers a width per field.
+// Nothing in the language connects the three, and a column renamed in one of
+// them fails silently - the grip drags a property nothing reads, or the width
+// is written to app.json under a key the page never looks up. So all three
+// lists are read from source and compared.
+//
+// SUMMARY is the deliberate exception: it is the column the others resize
+// into, so it has a variable and a track but no width to remember.
+func TestTheColumnsAreTheSameInAllThreePlaces(t *testing.T) {
+	var markup []string
+	for _, m := range regexp.MustCompile(`data-col="(\w+)"`).
+		FindAllStringSubmatch(string(mustRead("assets/console.html")), -1) {
+		markup = append(markup, m[1])
+	}
+	if len(markup) < 2 {
+		t.Fatal("fewer than two data-col columns in console.html; the pattern needs updating")
+	}
+
+	css := string(mustRead("assets/console.css"))
+	for _, name := range markup {
+		if !strings.Contains(css, "--col-"+name+":") {
+			t.Errorf("console.html has a %q column but console.css never sizes --col-%s", name, name)
+		}
+	}
+
+	// The struct's json tags, in field order, against the markup's order
+	// minus its last column. Order matters: the page hangs a grip off
+	// every box but the final one, so a reordering that moved SUMMARY
+	// out of last place would put a grip on the column that absorbs.
+	remembered := regexp.MustCompile(`json:"(\w+),omitempty"`).
+		FindAllStringSubmatch(structSource(t, "controller.go", "type Columns struct"), -1)
+	var fields []string
+	for _, m := range remembered {
+		fields = append(fields, m[1])
+	}
+	if got, want := strings.Join(fields, ","), strings.Join(markup[:len(markup)-1], ","); got != want {
+		t.Errorf("Columns remembers\n\t%s\nbut console.html draws\n\t%s", got, want)
+	}
+	if last := markup[len(markup)-1]; last != "summary" {
+		t.Errorf("the last column is %q; the grips and Columns both assume it is summary", last)
+	}
+}
+
+// structSource returns the body of a struct declaration, brace matched.
+func structSource(t *testing.T, file, decl string) string {
+	t.Helper()
+	raw, err := os.ReadFile(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(raw)
+	i := strings.Index(s, decl)
+	if i < 0 {
+		t.Fatalf("no %q in %s", decl, file)
+	}
+	j := strings.Index(s[i:], "\n}")
+	if j < 0 {
+		t.Fatalf("%q in %s is never closed", decl, file)
+	}
+	return s[i : i+j]
 }

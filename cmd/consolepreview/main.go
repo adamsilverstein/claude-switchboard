@@ -41,12 +41,13 @@ func main() {
 	})
 	http.HandleFunc("/cmd", func(w http.ResponseWriter, r *http.Request) {
 		var m struct {
-			Cmd   string `json:"cmd"`
-			Key   string `json:"key"`
-			Q     string `json:"q"`
-			On    bool   `json:"on"`
-			Value string `json:"value"`
-			Rows  int    `json:"rows"`
+			Cmd    string        `json:"cmd"`
+			Key    string        `json:"key"`
+			Q      string        `json:"q"`
+			On     bool          `json:"on"`
+			Value  string        `json:"value"`
+			Rows   int           `json:"rows"`
+			Widths appui.Columns `json:"widths"`
 		}
 		_ = json.NewDecoder(r.Body).Decode(&m)
 		switch m.Cmd {
@@ -60,6 +61,8 @@ func main() {
 			c.SetDensity(m.Value)
 		case "capacity":
 			c.SetCapacity(m.Rows)
+		case "columns":
+			c.SetColumns(m.Widths)
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(c.Snapshot(time.Now()))

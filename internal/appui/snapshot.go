@@ -30,6 +30,11 @@ type Snapshot struct {
 	Grouped  bool      `json:"grouped"`
 	Compact  bool      `json:"compact"`
 
+	// Columns are the header widths dragged in a previous session, so a
+	// relaunch opens to the table you shaped rather than to the default
+	// one. A column left at zero keeps the stylesheet's own width.
+	Columns Columns `json:"columns"`
+
 	// Error is a scan failure, shown in place of the list. An empty
 	// string means the scan succeeded, including when it found nothing.
 	Error string `json:"error,omitempty"`

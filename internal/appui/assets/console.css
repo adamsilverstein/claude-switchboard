@@ -51,9 +51,28 @@
   --name-size: 13.5px;
   --bar-w: 46px;
 
-  /* A column with nothing behind it on this machine collapses to nothing
+  /* One variable per column the table can resize, so a drag on a header
+   * divider is a single custom property away from every row at once.
+   * These are the widths the design ships with; the page overrides them
+   * on the root element once you have dragged one, and clears the
+   * override when you double-click the divider back.
+   *
+   * --head-pad is here for the same reason: the grips have to reach the
+   * full height of the header strip, and only this file knows how tall
+   * that is.
+   *
+   * SUMMARY has no variable of its own to be dragged by - it is the last
+   * column, and something has to be the one that absorbs what the others
+   * give up or take. NAME is flexible too until it is dragged, at which
+   * point SUMMARY absorbs alone.
+   *
+   * A column with nothing behind it on this machine collapses to nothing
    * rather than printing a dash on every row: a whole column of dashes
    * says "this is broken" where an absent column says "not here". */
+  --head-pad: 8px;
+  --col-status: 78px;
+  --col-age: 62px;
+  --col-name: minmax(0, 1.5fr);
   --col-context: 96px;
   --col-repo: 160px;
   --col-ref: 116px;
@@ -253,15 +272,15 @@ html, body {
 #head, .row {
   display: grid;
   grid-template-columns:
-    22px 78px 62px minmax(0, 1.5fr) var(--col-context)
+    22px var(--col-status) var(--col-age) var(--col-name) var(--col-context)
     var(--col-repo) var(--col-ref) var(--col-summary);
   align-items: center;
   gap: 0 var(--col-gap);
   padding: var(--row-pad) 15px;
 }
 #head {
-  padding-top: 8px;
-  padding-bottom: 8px;
+  padding-top: var(--head-pad);
+  padding-bottom: var(--head-pad);
   border-bottom: 1px solid var(--rule-frame);
   background: var(--thead);
   font-family: var(--cond);
@@ -274,6 +293,48 @@ html, body {
 }
 #head button { border: 0; background: none; font: inherit; letter-spacing: inherit; text-transform: inherit; color: inherit; padding: 0; text-align: left; }
 #head button[aria-sort] { color: var(--accent-ink); }
+
+/* --------------------------------------------------------- resize grips */
+
+/* Every resizable header sits in a box of its own, so the grip can hang off
+ * that box's trailing edge and land in the gap the grid already leaves
+ * between two columns. Nothing measures a column boundary: the boundary is
+ * wherever the browser put this box, and the grip is pinned to it.
+ *
+ * The label is what gets clipped when a column is dragged narrow. The grip
+ * hangs outside the box, so the clipping cannot live on the box itself. */
+#head .col { position: relative; display: flex; align-items: center; min-width: 0; }
+#head .col > :not(.grip) { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Faint by default and only as wide as a rule; the target around it is nine
+ * pixels, which is what makes it grabbable without making it loud. It spans
+ * the header's padding as well as its text, so the whole strip is live. */
+#head .grip {
+  position: absolute;
+  top: calc(-1 * var(--head-pad));
+  bottom: calc(-1 * var(--head-pad));
+  right: calc(-4.5px - var(--col-gap) / 2);
+  width: 9px;
+  cursor: col-resize;
+  touch-action: none;
+}
+/* --rule-frame rather than the lighter --rule-row the rows are separated
+ * with. A column boundary lands wherever a fractional grid track puts it, so
+ * the hairline is nearly always split across two device pixels at half
+ * coverage; at the row rule's weight that leaves it all but invisible. This
+ * is the stylesheet's structural hairline - the frame and the header's own
+ * rule are drawn in it - and a column divider is structure. */
+#head .grip::before { content: ""; position: absolute; inset: 0 4px; background: var(--rule-frame); }
+#head .grip:hover::before, #head .grip.dragging::before { background: var(--accent-ink); }
+
+/* The pointer is captured for the length of a drag, so the cursor has to be
+ * declared on the whole page or it reverts the moment it leaves the grip. */
+body.resizing { cursor: col-resize; user-select: none; }
+
+/* A column that is not on screen has no boundary to drag. The rules that
+ * take a column away are below, beside the widths they override. */
+.no-context #head [data-col="context"] .grip,
+.no-ref #head [data-col="ref"] .grip { display: none; }
 
 /* position, load-bearing: scrollCursorIntoView measures a row's offsetTop
  * against this box's scrollTop, and offsetTop is measured from the nearest
@@ -518,7 +579,14 @@ html, body {
 /* -------------------------------------------------------- laptop, <1200 */
 
 @media (max-width: 1200px) {
-  :root { --sidebar: 186px; --col-summary: 0px; }
+  :root { --sidebar: 186px; }
+  /* on body, not :root, and the same below for REPO: a width you dragged is
+   * set inline on the root element, where it outranks any stylesheet rule
+   * there. Declaring the collapse one level closer to the table means a
+   * column the layout has taken off the screen cannot be dragged back onto
+   * it as an empty gap. .no-context and .no-ref land on body for the same
+   * reason. */
+  body { --col-summary: 0px; }
   /* MODEL and REPO fold into a subline under the name; SUMMARY leaves the
    * table entirely - the fixed columns leave too little to split between it
    * and the name. It survives in the readout. PR / ISSUE stays: it is the
@@ -560,8 +628,9 @@ html, body {
 /* REPO is the first column to go when the table narrows: it is the one the
  * name's subline already carries below 1200, and the readout always does. */
 @media (max-width: 1599px) {
-  :root { --col-repo: 0px; }
+  body { --col-repo: 0px; }
   .row .repo, #head .repo { visibility: hidden; overflow: hidden; }
+  #head [data-col="repo"] .grip { display: none; }
 }
 
 @media (prefers-reduced-motion: reduce) {
