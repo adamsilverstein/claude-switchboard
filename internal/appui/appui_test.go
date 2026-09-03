@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -470,5 +472,52 @@ func TestAPrefsFileMayLeaveKeysOut(t *testing.T) {
 	}
 	if !s.Compact {
 		t.Error("compact = false; the one key the file did set was ignored")
+	}
+}
+
+// app.json is an ordinary file: it can be edited by hand, or written by a
+// build that sized its columns differently. A width narrower than a drag can
+// produce is read as "never dragged" rather than applied, because a header
+// that narrow shows nothing and has no divider left to grab.
+//
+// A wide one is passed through. There is no maximum on this side: how wide a
+// column may be is a question about the window, and the page is the half
+// that can see it.
+func TestAColumnTooNarrowToHaveBeenDraggedIsIgnored(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "app.json")
+	const raw = `{"sort":"age","columns":{"status":900,"age":10,"name":-5,"repo":180}}`
+	if err := os.WriteFile(path, []byte(raw), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got := New(path).Snapshot(now).Columns
+	if want := (Columns{Status: 900, Repo: 180}); got != want {
+		t.Errorf("columns = %+v, want %+v", got, want)
+	}
+}
+
+// A width the page sends goes through the same check, and survives a
+// relaunch - the whole point of writing it down.
+func TestDraggedColumnsSurviveARelaunch(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "app.json")
+	c := New(path)
+	c.Handle(`{"cmd":"columns","widths":{"name":260,"ref":12}}`)
+
+	got := New(path).Snapshot(now).Columns
+	if want := (Columns{Name: 260}); got != want {
+		t.Errorf("reopened with %+v, want %+v", got, want)
+	}
+}
+
+// Nothing in the language ties the page's floor to Go's, and a drag that
+// stopped at one number while the other threw it away would look like the
+// window forgetting a width you had just set.
+func TestThePageAndGoAgreeOnTheNarrowestColumn(t *testing.T) {
+	m := regexp.MustCompile(`const MIN_COL = (\d+)`).
+		FindStringSubmatch(string(mustRead("assets/console.js")))
+	if m == nil {
+		t.Fatal("no MIN_COL in console.js; the pattern needs updating")
+	}
+	if m[1] != strconv.Itoa(minColumnPx) {
+		t.Errorf("console.js clamps a drag at %spx but minColumnPx is %d", m[1], minColumnPx)
 	}
 }

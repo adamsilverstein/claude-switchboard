@@ -53,15 +53,22 @@
 
     <div id="listframe">
       <div id="error" hidden></div>
+      <!-- data-col names a column and marks where its track is on screen,
+           in track order. It is the only list of the columns: the script
+           reads it rather than carrying a copy, hangs a resize grip off
+           each header's trailing edge, and a test checks that the names
+           here are the ones Go remembers widths for.
+           The last column gets no grip - it is the one that absorbs what
+           the others give up, so it has no trailing edge to drag. -->
       <div id="head" role="row">
         <span></span>
-        <button type="button" data-sort="status">Status</button>
-        <button type="button" data-sort="age">Age</button>
-        <button type="button" data-sort="name">Name</button>
-        <button type="button" data-sort="context">Context</button>
-        <button type="button" class="repo" data-sort="repo">Repo</button>
-        <span class="ref">PR / Issue</span>
-        <span class="summary">Summary</span>
+        <span class="col" data-col="status"><button type="button" data-sort="status">Status</button></span>
+        <span class="col" data-col="age"><button type="button" data-sort="age">Age</button></span>
+        <span class="col" data-col="name"><button type="button" data-sort="name">Name</button></span>
+        <span class="col" data-col="context"><button type="button" data-sort="context">Context</button></span>
+        <span class="col" data-col="repo"><button type="button" class="repo" data-sort="repo">Repo</button></span>
+        <span class="col" data-col="ref"><span class="ref">PR / Issue</span></span>
+        <span class="col" data-col="summary"><span class="summary">Summary</span></span>
       </div>
       <div id="list" role="grid" aria-label="Claude Code agents" tabindex="-1"></div>
       <div id="empty" hidden>no agents match</div>

@@ -63,6 +63,8 @@ const state = {
   typing: false,
   confirmingStop: null,
   noticeTimer: null,
+  columns: {},      // column name -> pixel width you dragged it to
+  dragging: null,   // the column being dragged, or null
 };
 
 /* ------------------------------------------------------------ utilities */
@@ -156,6 +158,202 @@ function scrollCursorIntoView() {
   else if (bottom > box.scrollTop + box.clientHeight) box.scrollTop = bottom - box.clientHeight;
 }
 
+/* --------------------------------------------------------------- columns */
+
+/* Dragging the divider between two headers moves the boundary between their
+ * columns. The width goes on the root element as a custom property, which is
+ * where the header and every row already read their track sizes from - so
+ * one assignment moves the whole table and a drag costs no render at all.
+ *
+ * The columns themselves are not listed here. They are the [data-col] boxes
+ * in console.html, in track order, which keeps the markup the one place that
+ * says what the table's columns are.
+ */
+
+// Narrower than this and the header label has nothing left to show.
+const MIN_COL = 44;
+// What a flexible column keeps when a fixed one grows into it. Higher than
+// MIN_COL because the flexible columns are the two that carry a sentence:
+// a NAME column too narrow to show a word has stopped being a column.
+const FLEX_FLOOR = 120;
+
+function columnBoxes() {
+  return [...$("head").querySelectorAll("[data-col]")];
+}
+
+// A column is flexible while nothing has pinned it to a pixel width: the
+// stylesheet sizes NAME and SUMMARY in fr, and a drag replaces that with px.
+// A column the layout has collapsed reads as 0px, which is not flexible and
+// has nothing to give.
+function isFlexible(name) {
+  const w = getComputedStyle(document.body).getPropertyValue("--col-" + name).trim();
+  return w !== "" && !w.endsWith("px");
+}
+
+// A grid track sized in fr gives up its width to one sized in pixels, so a
+// column can grow exactly as far as the flexible ones have to spare. Past
+// that the grid overflows its frame and the table starts scrolling sideways,
+// which it never should. What is left to take is measured at the moment the
+// drag starts rather than assumed.
+function flexSlack(dragged) {
+  let slack = 0;
+  for (const box of columnBoxes()) {
+    const name = box.dataset.col;
+    if (name === dragged || !isFlexible(name)) continue;
+    slack += Math.max(0, box.offsetWidth - FLEX_FLOOR);
+  }
+  return slack;
+}
+
+// The width you chose and the width on screen are kept apart, because they
+// can differ: a window too narrow to show the table you shaped is trimmed to
+// fit, and that trim must not overwrite what you asked for. state.columns is
+// what you dragged and what Go is told; showColumn is only what is drawn.
+//
+// A width of zero clears the override and hands the column back to the
+// stylesheet, which is the only one of the two that answers to how wide the
+// window is.
+function showColumn(name, px) {
+  const root = document.documentElement.style;
+  if (px > 0) root.setProperty("--col-" + name, px + "px");
+  else root.removeProperty("--col-" + name);
+}
+
+// setColumn records a width and redraws. Zero forgets it.
+function setColumn(name, px) {
+  if (px > 0) state.columns[name] = px;
+  else delete state.columns[name];
+  paintColumns();
+}
+
+function paintColumns() {
+  for (const box of columnBoxes()) showColumn(box.dataset.col, state.columns[box.dataset.col] || 0);
+  trimToFit();
+}
+
+// A drag can never overflow the table - it only takes what the flexible
+// columns have to give - but the width it produced was measured against the
+// screen it was made on. Reopened on a laptop, or typed into app.json by
+// hand, it can be wider than there is room for. So what does not fit is
+// taken off the widest columns first, down to the floor: the wide ones are
+// the ones with room to give.
+//
+// Only what is drawn is trimmed. Widen the window again and the table comes
+// back to the shape you gave it.
+//
+// The rounds are because the pixels a fixed column gives up are shared out
+// between the flexible ones by their fr ratio, so handing back exactly what
+// was missing can still leave one of them under the floor. Three passes
+// settles it, and the loop stops the moment nothing is short.
+function trimToFit() {
+  for (let round = 0; round < 3; round++) {
+    let over = shortfall();
+    if (over <= 1) return;
+    for (const [name, px] of Object.entries(state.columns).sort((a, b) => b[1] - a[1])) {
+      if (over <= 0) break;
+      const drawn = drawnWidth(name);
+      const take = Math.min(over, drawn - MIN_COL);
+      if (take <= 0) continue;
+      showColumn(name, drawn - take);
+      over -= take;
+    }
+  }
+}
+
+// How much the table is short: what the flexible columns are missing to
+// reach their floor, plus anything spilling past the frame.
+//
+// The floor is the part that matters. A grid track sized in fr shrinks all
+// the way to nothing before the row overflows anything, so a test that
+// waited for an overflow would wait until NAME had already disappeared.
+function shortfall() {
+  let short = 0;
+  for (const box of columnBoxes()) {
+    if (isFlexible(box.dataset.col)) short += Math.max(0, FLEX_FLOOR - box.offsetWidth);
+  }
+  const head = $("head");
+  return short + Math.max(0, head.scrollWidth - head.clientWidth);
+}
+
+function drawnWidth(name) {
+  const box = $("head").querySelector('[data-col="' + name + '"]');
+  return box ? box.offsetWidth : 0;
+}
+
+// Apply what a frame carries. Skipped mid-drag: a poll landing during the
+// gesture would snap the column back to where it was before you grabbed it.
+function applyColumns(widths) {
+  if (state.dragging) return;
+  const w = widths || {};
+  state.columns = {};
+  for (const box of columnBoxes()) {
+    if (w[box.dataset.col] > 0) state.columns[box.dataset.col] = w[box.dataset.col];
+  }
+  paintColumns();
+}
+
+// Grips hang off the trailing edge of every header but the last, which has
+// no boundary of its own - it is the column the others resize into.
+function initColumns() {
+  const boxes = columnBoxes();
+  for (const box of boxes.slice(0, -1)) {
+    const name = box.dataset.col;
+    const grip = el("i", "grip");
+    grip.setAttribute("role", "separator");
+    grip.setAttribute("aria-orientation", "vertical");
+    grip.setAttribute("aria-label", "Resize the " + name + " column");
+    grip.title = "Drag to resize · double-click to reset";
+    grip.addEventListener("pointerdown", (e) => startResize(e, box, grip));
+    grip.addEventListener("dblclick", () => { setColumn(name, 0); sendColumns(); });
+    box.append(grip);
+  }
+}
+
+function startResize(e, box, grip) {
+  if (e.button !== 0) return;
+  // Without this the drag turns into a text selection across the header.
+  e.preventDefault();
+  const name = box.dataset.col;
+  const startX = e.clientX;
+  const startW = box.offsetWidth;
+  const maxW = startW + flexSlack(name);
+
+  const move = (ev) => {
+    setColumn(name, Math.round(Math.min(Math.max(startW + ev.clientX - startX, MIN_COL), maxW)));
+  };
+  const done = () => {
+    grip.removeEventListener("pointermove", move);
+    grip.removeEventListener("pointerup", done);
+    grip.removeEventListener("pointercancel", done);
+    grip.classList.remove("dragging");
+    document.body.classList.remove("resizing");
+    state.dragging = null;
+    // What you can see is what you chose. The last few pixels of a drag can
+    // be trimmed back by the flexible columns' floor, and remembering the
+    // width the pointer asked for rather than the one on screen would put a
+    // number in app.json that this window never draws.
+    const drawn = drawnWidth(name);
+    if (drawn > 0 && drawn < state.columns[name]) state.columns[name] = drawn;
+    sendColumns();
+  };
+
+  // Capture, so a pointer that outruns the nine pixel grip - which it will,
+  // the moment you move faster than the layout - keeps driving the drag.
+  grip.setPointerCapture(e.pointerId);
+  grip.classList.add("dragging");
+  document.body.classList.add("resizing");
+  state.dragging = name;
+  grip.addEventListener("pointermove", move);
+  grip.addEventListener("pointerup", done);
+  grip.addEventListener("pointercancel", done);
+}
+
+// Sent once the gesture ends rather than on every move: this is what gets
+// written to disk, and a drag is a few hundred frames.
+function sendColumns() {
+  send({ cmd: "columns", widths: state.columns });
+}
+
 /* ------------------------------------------------------------- rendering */
 
 function render() {
@@ -171,6 +369,7 @@ function render() {
   // without one would reflow the table under you as you typed.
   document.body.classList.toggle("no-context", !s.anyContext);
   document.body.classList.toggle("no-ref", !s.anyRef);
+  applyColumns(s.columns);
   renderSidebar(s);
   renderToolbar(s);
   renderList(s);
@@ -679,6 +878,8 @@ window.addEventListener("keydown", (e) => {
 
 /* ---------------------------------------------------------------- wiring */
 
+initColumns();
+
 $("filterInput").addEventListener("focus", () => { state.typing = true; });
 $("filterInput").addEventListener("blur", () => { state.typing = false; });
 $("filterInput").addEventListener("input", (e) => send({ cmd: "filter", q: e.target.value }));
@@ -719,6 +920,9 @@ window.addEventListener("resize", () => {
   // measurement has to be taken again rather than carried across.
   state.readoutH = 0;
   reportCapacity();
+  // And a different width means a different trim: what did not fit a moment
+  // ago may fit now, and the widths you chose are still on record.
+  paintColumns();
 });
 
 // Announce the page to whatever is hosting it. Nothing else tells the window
