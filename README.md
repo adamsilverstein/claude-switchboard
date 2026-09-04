@@ -280,8 +280,13 @@ session - the difference between about four seconds and about one. iTerm is
 only activated when it is not already the frontmost app.
 
 Agents inside tmux take two hops: focus the iTerm window hosting the tmux
-client, then select the window and pane inside tmux. Agents with no tty at
-all (background and SDK sessions) are listed but marked not focusable.
+client, then select the window and pane inside tmux. Background sessions
+(`claude agents` jobs, `kind: "bg"` in the registry) run on a pty the Claude
+Code daemon owns, so no terminal window ever matches their tty; they are
+focused by way of the iTerm window hosting a `claude agents` viewer, the
+frontmost one when several are open, and hidden from the list when no viewer
+is open. Agents with no tty at all (SDK sessions) are listed but marked not
+focusable.
 
 The `internal/target` package owns every piece of terminal knowledge -
 nothing else mentions AppleScript, iTerm, or tmux - so adding a Ghostty or

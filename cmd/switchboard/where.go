@@ -28,12 +28,16 @@ func runWhere(args []string) error {
 	return nil
 }
 
-// locateAgent resolves one agent to its terminal window.
+// locateAgent resolves one agent to its terminal window. A background
+// session's own tty is the daemon's, so it is located by its viewer instead.
 func locateAgent(a registry.Agent) target.Location {
+	res := target.NewResolver(target.ExecRunner{})
+	if a.Background() {
+		return res.ResolveBackground()
+	}
 	tty := ""
 	if procs, err := locate.Snapshot([]int{a.PID}); err == nil {
 		tty = procs[a.PID].TTY
 	}
-	res := target.NewResolver(target.ExecRunner{})
 	return res.Resolve(a.Tmux, tty)
 }

@@ -1,15 +1,24 @@
 package target
 
-import "fmt"
+import (
+	"fmt"
+	"sort"
+)
 
 // Resolver joins agents to terminal windows. It enumerates iTerm once at
 // construction (the AppleScript round trip is the expensive part) and
 // answers every Resolve from that snapshot; tmux lookups happen per agent
-// but only for agents that carry a tmux field.
+// but only for agents that carry a tmux field, and the process table is
+// scanned for "claude agents" viewers once, and only when a background
+// session asks.
 type Resolver struct {
 	r        Runner
 	byTTY    map[string]ItermSession
 	itermErr error
+
+	viewersScanned bool
+	viewers        []string
+	viewersErr     error
 }
 
 // NewResolver enumerates iTerm2 and returns a resolver. An iTerm failure
@@ -34,8 +43,8 @@ func NewResolver(r Runner) *Resolver {
 // Resolve locates one agent given its registry tmux field and the tty of its
 // process. Agents inside tmux need two hops: the iTerm window hosting the
 // tmux client, then the window and pane inside tmux. Agents with no tty
-// (background and SDK sessions) are listed as not focusable rather than
-// dropped.
+// (SDK sessions) are listed as not focusable rather than dropped. Background
+// sessions have a tty no window owns and go through ResolveBackground.
 func (res *Resolver) Resolve(tmuxField, tty string) Location {
 	if tmuxField != "" {
 		return res.resolveTmux(tmuxField)
@@ -101,6 +110,65 @@ func (res *Resolver) resolveTmux(field string) Location {
 		Focusable: true,
 		Commands:  append([]Command{FocusCommand(host)}, sel...),
 	}
+}
+
+// ResolveBackground locates a background session. Its own tty belongs to
+// the daemon, so the destination is the iTerm window hosting a "claude
+// agents" viewer instead. When several viewers are open the frontmost one
+// wins: it is the one the user looked at last, and any viewer can be
+// switched to the job once it is on screen.
+func (res *Resolver) ResolveBackground() Location {
+	viewers, err := res.agentViewers()
+	if err != nil {
+		return Location{
+			Backend: "iterm",
+			Desc:    "background session (viewer unknown)",
+			Reason:  fmt.Sprintf("background session; could not look for a claude agents viewer: %v", err),
+		}
+	}
+	if len(viewers) == 0 {
+		return Location{
+			Backend: "iterm",
+			Desc:    "background session (no viewer)",
+			Reason:  "background session; no claude agents viewer is open",
+		}
+	}
+	var hosted []ItermSession
+	for _, tty := range viewers {
+		if s, ok := res.byTTY[tty]; ok {
+			hosted = append(hosted, s)
+		}
+	}
+	if len(hosted) == 0 {
+		return Location{
+			Backend: "iterm",
+			Desc:    fmt.Sprintf("background session, viewer on %s (not an iTerm window)", viewers[0]),
+			Reason:  res.noViewerWindowReason(viewers[0]),
+		}
+	}
+	sort.SliceStable(hosted, func(i, j int) bool { return hosted[i].WindowIndex < hosted[j].WindowIndex })
+	s := hosted[0]
+	return Location{
+		Backend:   "iterm",
+		Desc:      fmt.Sprintf("background session, via claude agents in iTerm window %d, tab %d, session %d (%s)", s.WindowIndex, s.TabIndex, s.SessionIndex, s.TTY),
+		Focusable: true,
+		Commands:  []Command{FocusCommand(s)},
+	}
+}
+
+func (res *Resolver) agentViewers() ([]string, error) {
+	if !res.viewersScanned {
+		res.viewersScanned = true
+		res.viewers, res.viewersErr = AgentViewers(res.r)
+	}
+	return res.viewers, res.viewersErr
+}
+
+func (res *Resolver) noViewerWindowReason(tty string) string {
+	if res.itermErr != nil {
+		return fmt.Sprintf("iTerm enumeration failed: %v", res.itermErr)
+	}
+	return fmt.Sprintf("background session; its claude agents viewer on %s is not an iTerm window", tty)
 }
 
 func (res *Resolver) noWindowReason(tty string) string {

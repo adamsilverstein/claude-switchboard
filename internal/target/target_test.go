@@ -64,6 +64,8 @@ type fakeRunner struct {
 	itermErr error
 	tmux     string
 	tmuxErr  error
+	ps       string
+	psErr    error
 	calls    []string
 }
 
@@ -74,6 +76,8 @@ func (f *fakeRunner) Run(name string, args ...string) (string, error) {
 		return f.iterm, f.itermErr
 	case "tmux":
 		return f.tmux, f.tmuxErr
+	case "ps":
+		return f.ps, f.psErr
 	}
 	return "", fmt.Errorf("unexpected command %s", name)
 }
