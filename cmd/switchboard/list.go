@@ -50,16 +50,21 @@ func scanAgentsWithProcs() ([]registry.Agent, map[int]locate.Proc, error) {
 }
 
 // onScreen drops agents that are running but displayed nowhere: headless SDK
-// sessions, which have no controlling terminal, and agents inside a detached
-// tmux session, whose panes exist but are on no one's screen. Both are real
-// processes the picker cannot take you to, so a row for either offers a
-// destination that does not exist. The tmux query is skipped unless some
-// agent claims to be inside tmux, and a failed query means "unknown", which
-// keeps the agent listed rather than hiding it.
+// sessions, which have no controlling terminal; agents inside a detached
+// tmux session, whose panes exist but are on no one's screen; and background
+// sessions with no "claude agents" viewer open, whose pty belongs to the
+// daemon. All are real processes the picker cannot take you to, so a row for
+// any of them offers a destination that does not exist. The tmux and process
+// table queries are skipped unless some agent needs them, and a failed query
+// means "unknown", which keeps the agent listed rather than hiding it.
 func onScreen(r target.Runner, agents []registry.Agent) []registry.Agent {
 	attached, tmuxErr := map[string]bool{}, error(nil)
 	if anyTmux(agents) {
 		attached, tmuxErr = target.AttachedTmuxSessions(r)
+	}
+	viewers, viewersErr := []string(nil), error(nil)
+	if anyBackground(agents) {
+		viewers, viewersErr = target.AgentViewers(r)
 	}
 	kept := make([]registry.Agent, 0, len(agents))
 	for _, a := range agents {
@@ -71,6 +76,9 @@ func onScreen(r target.Runner, agents []registry.Agent) []registry.Agent {
 				continue
 			}
 		}
+		if a.Background() && viewersErr == nil && len(viewers) == 0 {
+			continue
+		}
 		kept = append(kept, a)
 	}
 	return kept
@@ -79,6 +87,15 @@ func onScreen(r target.Runner, agents []registry.Agent) []registry.Agent {
 func anyTmux(agents []registry.Agent) bool {
 	for _, a := range agents {
 		if a.Tmux != "" {
+			return true
+		}
+	}
+	return false
+}
+
+func anyBackground(agents []registry.Agent) bool {
+	for _, a := range agents {
+		if a.Background() {
 			return true
 		}
 	}

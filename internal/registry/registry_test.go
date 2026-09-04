@@ -168,3 +168,19 @@ func TestFocusableExcludesSDKSessions(t *testing.T) {
 		}
 	}
 }
+
+func TestBackgroundIsKindBg(t *testing.T) {
+	if !(Agent{Kind: "bg", Entrypoint: "cli"}).Background() {
+		t.Error("kind bg should be background")
+	}
+	for _, kind := range []string{"", "interactive"} {
+		if (Agent{Kind: kind, Entrypoint: "cli"}).Background() {
+			t.Errorf("kind %q should not be background", kind)
+		}
+	}
+	// Background sessions stay Focusable: the resolver decides whether a
+	// viewer is on screen, and the list filter asks it separately.
+	if !(Agent{Kind: "bg", Entrypoint: "cli"}).Focusable() {
+		t.Error("background cli session should remain focusable at the registry level")
+	}
+}

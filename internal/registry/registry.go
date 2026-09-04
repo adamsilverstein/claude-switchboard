@@ -182,3 +182,12 @@ func DefaultDir() (string, error) {
 func (a Agent) Focusable() bool {
 	return !strings.HasPrefix(a.Entrypoint, "sdk-")
 }
+
+// Background reports whether the agent is a background session: one the
+// Claude Code daemon runs on a pty of its own rather than in a terminal
+// window. Its tty is real but no terminal application owns it, so the only
+// window that shows it is a "claude agents" viewer, which is what the
+// target package looks for instead.
+func (a Agent) Background() bool {
+	return a.Kind == "bg"
+}
