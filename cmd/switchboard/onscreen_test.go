@@ -38,6 +38,7 @@ func onScreenFixtures() []registry.Agent {
 		{PID: 300, Name: "in attached tmux", Entrypoint: "cli", Tmux: "work:@1.%1"},
 		{PID: 400, Name: "in detached tmux", Entrypoint: "cli", Tmux: "abandoned:@2.%2"},
 		{PID: 500, Name: "background job", Entrypoint: "cli", Kind: "bg"},
+		{PID: 600, Name: "vscode extension", Entrypoint: "claude-vscode"},
 	}
 }
 
