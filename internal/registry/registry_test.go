@@ -161,6 +161,7 @@ func TestFocusableExcludesSDKSessions(t *testing.T) {
 		{"desktop", true}, // a front-end we do not know about is still a terminal
 		{"sdk-cli", false},
 		{"sdk-py", false},
+		{"claude-vscode", false}, // the editor extension drives it over stdio
 	}
 	for _, c := range cases {
 		if got := (Agent{Entrypoint: c.entrypoint}).Focusable(); got != c.want {

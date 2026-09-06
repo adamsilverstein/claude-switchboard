@@ -115,7 +115,7 @@ Privacy & Security -> Automation.
 switchboard                 # interactive picker
 switchboard list            # plain table of live agents
 switchboard list --summary  # ...with a one-line summary per agent
-switchboard list --all      # include dead entries and headless SDK sessions
+switchboard list --all      # include dead entries and headless SDK and VS Code sessions
 switchboard where <agent>   # which window is the agent in?
 switchboard focus <agent>   # jump to it
 switchboard focus <agent> --dry-run   # print the commands instead
@@ -285,8 +285,9 @@ client, then select the window and pane inside tmux. Background sessions
 Code daemon owns, so no terminal window ever matches their tty; they are
 focused by way of the iTerm window hosting a `claude agents` viewer, the
 frontmost one when several are open, and hidden from the list when no viewer
-is open. Agents with no tty at all (SDK sessions) are listed but marked not
-focusable.
+is open. Agents with no tty at all (SDK sessions, and sessions the VS Code
+extension drives over stdio) are hidden from the list, since no window shows
+them; `list --all` and `where` still report them as not focusable.
 
 The `internal/target` package owns every piece of terminal knowledge -
 nothing else mentions AppleScript, iTerm, or tmux - so adding a Ghostty or
