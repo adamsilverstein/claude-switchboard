@@ -16,12 +16,15 @@ func runUI() error {
 		return err
 	}
 
+	// The window index outlives each poll so the iTerm enumeration behind
+	// it is cached across them rather than run every second.
+	windows := target.NewWindowIndex(target.ExecRunner{}, 0)
 	source := func() ([]ui.Row, error) {
-		agents, err := scanAgents()
+		agents, procs, err := scanAgentsWithProcs()
 		if err != nil {
 			return nil, err
 		}
-		agents = onScreen(target.ExecRunner{}, agents)
+		agents = onScreen(target.ExecRunner{}, windows, agents, ttysOf(procs))
 		rows := make([]ui.Row, 0, len(agents))
 		for _, a := range agents {
 			act := activity.For(projectsDir, a.Cwd, a.SessionID)

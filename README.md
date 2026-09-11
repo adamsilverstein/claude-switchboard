@@ -115,7 +115,7 @@ Privacy & Security -> Automation.
 switchboard                 # interactive picker
 switchboard list            # plain table of live agents
 switchboard list --summary  # ...with a one-line summary per agent
-switchboard list --all      # include dead entries and headless SDK and VS Code sessions
+switchboard list --all      # include dead entries and sessions no window shows
 switchboard where <agent>   # which window is the agent in?
 switchboard focus <agent>   # jump to it
 switchboard focus <agent> --dry-run   # print the commands instead
@@ -288,6 +288,18 @@ frontmost one when several are open, and hidden from the list when no viewer
 is open. Agents with no tty at all (SDK sessions, and sessions the VS Code
 extension drives over stdio) are hidden from the list, since no window shows
 them; `list --all` and `where` still report them as not focusable.
+
+Orphans are hidden the same way. iTerm keeps sessions running inside
+iTermServer so they survive a restart, and a session the server still owns
+but no window ever re-adopted is alive, registered, holding a real tty, and
+reachable from nowhere: only iTerm's own startup adopts orphans, so there is
+nothing a running iTerm can be asked to focus. The list drops an agent whose
+tty matches no iTerm session, which also covers agents running in a terminal
+this tool has no backend for. The check is one cached enumeration: a hit
+means "show the row" and needs no freshness, while a miss - the answer that
+hides a row - is never decided on an enumeration more than two seconds old,
+so an agent in a brand new window cannot be mistaken for an orphan. With
+every agent windowed it costs a single round trip.
 
 The `internal/target` package owns every piece of terminal knowledge -
 nothing else mentions AppleScript, iTerm, or tmux - so adding a Ghostty or

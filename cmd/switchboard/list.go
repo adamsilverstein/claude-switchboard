@@ -49,15 +49,30 @@ func scanAgentsWithProcs() ([]registry.Agent, map[int]locate.Proc, error) {
 	return agents, procs, nil
 }
 
+// ttysOf reduces a ps snapshot to the controlling terminal of each pid,
+// which is all the window check needs.
+func ttysOf(procs map[int]locate.Proc) map[int]string {
+	ttys := make(map[int]string, len(procs))
+	for pid, p := range procs {
+		ttys[pid] = p.TTY
+	}
+	return ttys
+}
+
 // onScreen drops agents that are running but displayed nowhere: headless SDK
 // sessions, which have no controlling terminal; agents inside a detached
-// tmux session, whose panes exist but are on no one's screen; and background
+// tmux session, whose panes exist but are on no one's screen; background
 // sessions with no "claude agents" viewer open, whose pty belongs to the
-// daemon. All are real processes the picker cannot take you to, so a row for
-// any of them offers a destination that does not exist. The tmux and process
-// table queries are skipped unless some agent needs them, and a failed query
-// means "unknown", which keeps the agent listed rather than hiding it.
-func onScreen(r target.Runner, agents []registry.Agent) []registry.Agent {
+// daemon; and agents whose tty no iTerm window owns, the orphans iTerm's
+// server keeps running after a restart failed to re-adopt them. All are real
+// processes the picker cannot take you to, so a row for any of them offers a
+// destination that does not exist. The tmux, process table, and iTerm
+// queries are skipped unless some agent needs them, and a failed query means
+// "unknown", which keeps the agent listed rather than hiding it.
+//
+// ttys is what ps reported for each agent's pid, keyed by pid; an agent
+// missing from it has no tty to check and is kept.
+func onScreen(r target.Runner, windows *target.WindowIndex, agents []registry.Agent, ttys map[int]string) []registry.Agent {
 	attached, tmuxErr := map[string]bool{}, error(nil)
 	if anyTmux(agents) {
 		attached, tmuxErr = target.AttachedTmuxSessions(r)
@@ -78,6 +93,16 @@ func onScreen(r target.Runner, agents []registry.Agent) []registry.Agent {
 		}
 		if a.Background() && viewersErr == nil && len(viewers) == 0 {
 			continue
+		}
+		// The tty of a tmux pane belongs to the tmux server and the tty
+		// of a background session to the daemon, so neither is ever in
+		// an iTerm window and both have already been judged above.
+		if a.Tmux == "" && !a.Background() {
+			if tty := ttys[a.PID]; tty != "" {
+				if has, known := windows.Windowed(tty); known && !has {
+					continue
+				}
+			}
 		}
 		kept = append(kept, a)
 	}
@@ -109,12 +134,13 @@ func runList(args []string) error {
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	agents, err := scanAgents()
+	agents, procs, err := scanAgentsWithProcs()
 	if err != nil {
 		return err
 	}
 	if !*all {
-		agents = onScreen(target.ExecRunner{}, agents)
+		r := target.ExecRunner{}
+		agents = onScreen(r, target.NewWindowIndex(r, 0), agents, ttysOf(procs))
 	}
 	projectsDir, err := activity.DefaultProjectsDir()
 	if err != nil {
