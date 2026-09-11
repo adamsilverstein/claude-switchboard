@@ -53,6 +53,10 @@ type appSource struct {
 	projectsDir   string
 	statuslineDir string
 	builder       appui.Builder
+
+	// windows is held for the same reason: it caches the iTerm
+	// enumeration that says whether an agent's tty still has a window.
+	windows *target.WindowIndex
 }
 
 func newAppSource() (*appSource, error) {
@@ -68,6 +72,7 @@ func newAppSource() (*appSource, error) {
 	return &appSource{
 		projectsDir:   projectsDir,
 		statuslineDir: statuslineDir,
+		windows:       target.NewWindowIndex(target.ExecRunner{}, 0),
 		builder: appui.Builder{
 			ProjectsDir:   projectsDir,
 			StatuslineDir: statuslineDir,
@@ -88,11 +93,8 @@ func (s *appSource) rows() ([]ui.Row, error) {
 	if err != nil {
 		return nil, err
 	}
-	agents = onScreen(target.ExecRunner{}, agents)
-	ttys := make(map[int]string, len(procs))
-	for pid, p := range procs {
-		ttys[pid] = p.TTY
-	}
+	ttys := ttysOf(procs)
+	agents = onScreen(target.ExecRunner{}, s.windows, agents, ttys)
 	return s.builder.Rows(agents, ttys, func(a registry.Agent, act activity.Activity) string {
 		return displayName(s.projectsDir, a, act)
 	}), nil
