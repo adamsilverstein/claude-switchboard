@@ -48,6 +48,8 @@ Commands:
   list [--all] [--summary]   print the live agents as a table
   where <agent>              print the window an agent is running in
   focus <agent> [--dry-run]  jump focus to an agent's window
+  statusline --install       chain the statusLine shim into settings.json
+  statusline --uninstall     unchain it again
   statusline -- <command>    Claude Code statusLine shim; see README
   help                       show this help
 
