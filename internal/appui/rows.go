@@ -52,6 +52,7 @@ func agentAge(a registry.Agent, act activity.Activity) time.Time {
 	return time.Time{}
 }
 
+// telemetry combines registry, transcript, git, forge, and statusline data.
 func (b Builder) telemetry(a registry.Agent, act activity.Activity, tty string) ui.Telemetry {
 	t := ui.Telemetry{
 		Model:          activity.ModelDisplayName(act.Model),

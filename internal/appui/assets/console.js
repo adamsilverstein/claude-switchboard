@@ -460,6 +460,7 @@ function facets(blockId, listId, rows, keyOf, noteOf) {
   }
 }
 
+// resetNote describes when a rate-limit window rolls over, when known.
 function resetNote(inHowLong) {
   return inHowLong ? "resets in " + inHowLong : "";
 }

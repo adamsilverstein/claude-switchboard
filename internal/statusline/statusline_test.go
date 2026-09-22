@@ -243,6 +243,7 @@ const usagePayload = `{
   }
 }`
 
+// TestPayloadCarriesTheSessionLedger verifies every cost and cache field.
 func TestPayloadCarriesTheSessionLedger(t *testing.T) {
 	p := parse(t, usagePayload)
 	if p.Cost == nil {
@@ -288,6 +289,7 @@ func TestALedgerlessPayloadCarriesNoLedger(t *testing.T) {
 	}
 }
 
+// TestAccountCarriesEveryWindow verifies the freshest payload is returned whole.
 func TestAccountCarriesEveryWindow(t *testing.T) {
 	dir := t.TempDir()
 	if err := Store(dir, []byte(usagePayload)); err != nil {

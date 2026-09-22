@@ -13,6 +13,7 @@ import (
 	"github.com/adamsilverstein/claude-switchboard/internal/ui"
 )
 
+// TestFormatUSD covers the precision used across the expected cost range.
 func TestFormatUSD(t *testing.T) {
 	for usd, want := range map[float64]string{
 		0: "$0.00", 15.243: "$15.24", 1: "$1.00",
@@ -26,6 +27,7 @@ func TestFormatUSD(t *testing.T) {
 	}
 }
 
+// TestFormatSpan covers the duration forms shown in the usage readout.
 func TestFormatSpan(t *testing.T) {
 	for d, want := range map[time.Duration]string{
 		48 * time.Second:                "48s",
@@ -41,6 +43,7 @@ func TestFormatSpan(t *testing.T) {
 	}
 }
 
+// usageRow builds the smallest row needed to exercise usage formatting.
 func usageRow(u *ui.Usage) ui.Row {
 	return ui.Row{
 		Agent:     registry.Agent{PID: 7, SessionID: "s7", Status: "busy", Live: true},
@@ -49,6 +52,7 @@ func usageRow(u *ui.Usage) ui.Row {
 	}
 }
 
+// TestSessionUsageIsFormattedForThePage verifies every ledger display field.
 func TestSessionUsageIsFormattedForThePage(t *testing.T) {
 	v := view(now, usageRow(&ui.Usage{
 		CostUSD:      15.243,
@@ -89,6 +93,7 @@ func TestAnUntouchedSessionOmitsTheLinesAndCacheLines(t *testing.T) {
 	}
 }
 
+// TestCacheReadsItsStates covers warm, cold, unused, and absent caches.
 func TestCacheReadsItsStates(t *testing.T) {
 	for _, c := range []struct {
 		name  string
@@ -137,6 +142,7 @@ func shimDir(t *testing.T, session, payload string) string {
 	return dir
 }
 
+// TestAccountUsageReadsEveryWindow verifies all reported account limits.
 func TestAccountUsageReadsEveryWindow(t *testing.T) {
 	dir := shimDir(t, "s1", `{"session_id":"s1","rate_limits":{
 		"five_hour":{"used_percentage":10,"resets_at":1787743800},

@@ -128,6 +128,7 @@ var (
 	}
 )
 
+// fixture builds the sample rows rendered by the console preview.
 func fixture(n int, bare bool) []ui.Row {
 	now := time.Now()
 	rows := make([]ui.Row, 0, n)

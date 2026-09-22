@@ -32,6 +32,7 @@ func commandOf(t *testing.T, path string) string {
 	return settings.StatusLine.Command
 }
 
+// write creates a temporary settings file containing body.
 func write(t *testing.T, body string) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "settings.json")
@@ -41,6 +42,7 @@ func write(t *testing.T, body string) string {
 	return path
 }
 
+// TestInstallWrapsTheExistingCommand verifies that the prior command is kept.
 func TestInstallWrapsTheExistingCommand(t *testing.T) {
 	path := write(t, `{
   "model": "opus",
@@ -86,6 +88,7 @@ func TestInstallLeavesTheRestOfTheFileByteForByte(t *testing.T) {
 	}
 }
 
+// TestInstallIsIdempotent verifies that a second install leaves no artifacts.
 func TestInstallIsIdempotent(t *testing.T) {
 	path := write(t, `{"statusLine": {"type": "command", "command": "my-statusline"}}`)
 	if _, err := statusline.Install(path, "/bin/switchboard"); err != nil {
@@ -131,6 +134,7 @@ func TestInstalledMatchesOnShapeNotPath(t *testing.T) {
 	}
 }
 
+// TestInstallIntoAFileWithNoStatusLine verifies insertion beside existing keys.
 func TestInstallIntoAFileWithNoStatusLine(t *testing.T) {
 	path := write(t, `{"model": "opus"}`)
 	if _, err := statusline.Install(path, "/bin/switchboard"); err != nil {
@@ -145,6 +149,7 @@ func TestInstallIntoAFileWithNoStatusLine(t *testing.T) {
 	}
 }
 
+// TestInstallIntoAnEmptyObjectAndAMissingFile covers both blank starting states.
 func TestInstallIntoAnEmptyObjectAndAMissingFile(t *testing.T) {
 	empty := write(t, "{}\n")
 	if _, err := statusline.Install(empty, "/bin/switchboard"); err != nil {
@@ -167,6 +172,7 @@ func TestInstallIntoAnEmptyObjectAndAMissingFile(t *testing.T) {
 	}
 }
 
+// TestInstallQuotesAPathWithASpace verifies that the generated command is safe.
 func TestInstallQuotesAPathWithASpace(t *testing.T) {
 	path := write(t, `{"statusLine": {"type": "command", "command": "hud"}}`)
 	if _, err := statusline.Install(path, "/Applications/My Tools/switchboard"); err != nil {
@@ -178,6 +184,7 @@ func TestInstallQuotesAPathWithASpace(t *testing.T) {
 	}
 }
 
+// TestInstallBacksUpWhatItOverwrote verifies the original bytes are preserved.
 func TestInstallBacksUpWhatItOverwrote(t *testing.T) {
 	body := `{"statusLine": {"type": "command", "command": "hud"}}`
 	path := write(t, body)
@@ -197,6 +204,7 @@ func TestInstallBacksUpWhatItOverwrote(t *testing.T) {
 	}
 }
 
+// TestUninstallRestoresTheWrappedCommand verifies the inverse installation.
 func TestUninstallRestoresTheWrappedCommand(t *testing.T) {
 	path := write(t, `{"statusLine": {"type": "command", "command": "bash hud.sh --wide"}}`)
 	if _, err := statusline.Install(path, "/bin/switchboard"); err != nil {
@@ -233,6 +241,7 @@ func TestUninstallRemovesAStatusLineItCreated(t *testing.T) {
 	}
 }
 
+// TestUninstallWithoutTheShimChangesNothing protects unrelated statuslines.
 func TestUninstallWithoutTheShimChangesNothing(t *testing.T) {
 	body := `{"statusLine": {"type": "command", "command": "hud"}}`
 	path := write(t, body)

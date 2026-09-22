@@ -266,6 +266,7 @@ func key(raw []byte, from int, name string) (int, bool) {
 	}
 }
 
+// isSpace reports whether b is JSON whitespace.
 func isSpace(b byte) bool {
 	return b == ' ' || b == '\t' || b == '\n' || b == '\r'
 }
