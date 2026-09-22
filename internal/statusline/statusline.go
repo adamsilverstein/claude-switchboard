@@ -227,7 +227,9 @@ const pruneAfter = 30 * 24 * time.Hour
 // carries a copy of, taken from the most recently written file. It also
 // removes shim files no session has touched in a month.
 //
-// Returns false when no session on this machine has the shim installed.
+// Returns false when no session on this machine has the shim installed. A
+// payload without rate_limits still returns true, with no windows reading,
+// because it proves the shim is there and the install hint would be wrong.
 func Account(dir string) (Windows, bool) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -260,8 +262,13 @@ func Account(dir string) (Windows, bool) {
 		return Windows{}, false
 	}
 	var p Payload
-	if err := json.Unmarshal(raw, &p); err != nil || p.RateLimits == nil {
+	if err := json.Unmarshal(raw, &p); err != nil {
 		return Windows{}, false
+	}
+	if p.RateLimits == nil {
+		// The shim is installed and recording; this Claude Code just
+		// did not report limits, eg. an API-key account.
+		return Windows{}, true
 	}
 	return Windows{
 		FiveHour:   p.RateLimits.FiveHour,

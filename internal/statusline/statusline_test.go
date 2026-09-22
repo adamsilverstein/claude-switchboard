@@ -222,6 +222,22 @@ func TestAccountWithNoShimInstalled(t *testing.T) {
 	}
 }
 
+// A payload with no rate_limits still proves the shim is installed, so the
+// app must not tell the user to install it.
+func TestAccountWithoutRateLimitsStillFindsTheShim(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "s.json"), []byte(`{"cost":{"total_cost_usd":1}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	w, ok := Account(dir)
+	if !ok {
+		t.Fatal("Account missed a shim payload that carries no rate_limits")
+	}
+	if w.Any() {
+		t.Error("windows read with no rate_limits in the payload")
+	}
+}
+
 // The blocks the app window's usage readout is built from. Every one is
 // optional in the payload, so each is asserted both present and absent.
 const usagePayload = `{
