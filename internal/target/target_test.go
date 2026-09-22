@@ -240,22 +240,31 @@ func TestAttachedTmuxSessionsReportsFailure(t *testing.T) {
 	}
 }
 
-// The focus script must activate iTerm before it selects anything. With two
-// displays macOS answers an activate by raising whatever iTerm window sits
-// on the display the user is already looking at, which undoes a selection
-// made beforehand: asking for a window on the second monitor lands on a
-// window on the first. Activating first and selecting after leaves the
-// selection as the last word.
-func TestFocusScriptActivatesBeforeSelecting(t *testing.T) {
+// The focus script must select the window both before and after it
+// activates iTerm. With one window per Space, macOS answers an activate by
+// switching to the Space of iTerm's key window, so a window not selected
+// beforehand is never reached: every pick lands on the most recent window.
+// With two displays, macOS answers the activate by raising whatever iTerm
+// window sits on the display the user is already looking at, so a window
+// not selected afterwards loses to it.
+func TestFocusScriptSelectsAroundActivate(t *testing.T) {
 	activate := strings.Index(focusSessionScript, "activate")
 	if activate < 0 {
 		t.Fatal("focus script never activates iTerm")
 	}
-	sel := strings.Index(focusSessionScript, "select ")
-	if sel < 0 {
-		t.Fatal("focus script never selects a session")
+	phases := []struct{ name, script string }{
+		{"before activate", focusSessionScript[:activate]},
+		{"after activate", focusSessionScript[activate:]},
 	}
-	if activate > sel {
-		t.Error("activate must come before the first select, or macOS raises the window on the active display instead of the requested one")
+	for _, p := range phases {
+		offset := 0
+		for _, sel := range []string{"select session si of t", "select t", "select w"} {
+			next := strings.Index(p.script[offset:], sel)
+			if next < 0 {
+				t.Errorf("%s: want %q after the previous select; without the window selected before activate macOS switches to the Space of the most recent iTerm window, and without it after, macOS raises the window on the active display", p.name, sel)
+				break
+			}
+			offset += next + len(sel)
+		}
 	}
 }

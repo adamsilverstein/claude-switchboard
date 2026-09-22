@@ -117,12 +117,16 @@ func ParseItermSessions(out string) []ItermSession {
 // the session turned up; the selecting happens afterwards, addressed by
 // window id, so raising a window mid-scan cannot invalidate the loop.
 //
-// Activating comes before selecting, and that order is the whole fix for
-// multi-monitor desktops. macOS answers an activate by bringing forward the
-// app's window on the display the user is already looking at, so an
-// activate issued after the select threw the selection away: picking an
-// agent on the second monitor jumped to whatever iTerm window happened to
-// sit on the first. Selecting last leaves the requested window as the one
+// When iTerm is not frontmost the window is selected on both sides of the
+// activate, and each half fixes a different desktop layout. With one window
+// per Space, macOS answers an activate by switching to the Space of the
+// app's key window, and a select made afterwards cannot pull the user off
+// that Space: without the first select, every pick landed on the most
+// recently used iTerm window. With two monitors, macOS answers the activate
+// by raising the app's window on the display the user is already looking
+// at, which throws the first selection away: without the second select,
+// picking an agent on the second monitor jumped to whatever iTerm window
+// sat on the first. Selecting last leaves the requested window as the one
 // macOS settles on.
 //
 // The activate is still guarded, because it is by far the most expensive
@@ -165,12 +169,17 @@ const focusSessionScript = `on run argv
 			end repeat
 		end if
 		if found then
-			if not frontmost then activate
 			set w to window id wid
 			set t to tab ti of w
 			select session si of t
 			select t
 			select w
+			if not frontmost then
+				activate
+				select session si of t
+				select t
+				select w
+			end if
 		end if
 	end tell
 	if not found then return "not found"
