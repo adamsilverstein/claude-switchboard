@@ -252,12 +252,19 @@ func TestFocusScriptSelectsAroundActivate(t *testing.T) {
 	if activate < 0 {
 		t.Fatal("focus script never activates iTerm")
 	}
-	before := strings.Index(focusSessionScript[:activate], "select w")
-	if before < 0 {
-		t.Error("the window must be selected before activate, or macOS switches to the Space of the most recent iTerm window instead of the requested one")
+	phases := []struct{ name, script string }{
+		{"before activate", focusSessionScript[:activate]},
+		{"after activate", focusSessionScript[activate:]},
 	}
-	after := strings.Index(focusSessionScript[activate:], "select w")
-	if after < 0 {
-		t.Error("the window must be selected after activate, or macOS raises the window on the active display instead of the requested one")
+	for _, p := range phases {
+		offset := 0
+		for _, sel := range []string{"select session si of t", "select t", "select w"} {
+			next := strings.Index(p.script[offset:], sel)
+			if next < 0 {
+				t.Errorf("%s: want %q after the previous select; without the window selected before activate macOS switches to the Space of the most recent iTerm window, and without it after, macOS raises the window on the active display", p.name, sel)
+				break
+			}
+			offset += next + len(sel)
+		}
 	}
 }
