@@ -257,3 +257,19 @@ func TestUninstallWithoutTheShimChangesNothing(t *testing.T) {
 		t.Errorf("file changed:\n%s", raw)
 	}
 }
+
+// Uninstall has to be safe to run on a machine that never had a settings
+// file, the same way Install is.
+func TestUninstallWithNoSettingsFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "settings.json")
+	res, err := statusline.Uninstall(path)
+	if err != nil {
+		t.Fatalf("uninstall with no settings file: %v", err)
+	}
+	if res.Changed {
+		t.Error("uninstall reported a change with nothing to change")
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Error("uninstall created a settings file")
+	}
+}

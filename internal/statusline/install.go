@@ -89,7 +89,9 @@ func Install(path, self string) (Result, error) {
 // state it was found in.
 func Uninstall(path string) (Result, error) {
 	raw, err := os.ReadFile(path)
-	if err != nil {
+	if errors.Is(err, os.ErrNotExist) {
+		return Result{Path: path}, nil // nothing installed, nothing to undo
+	} else if err != nil {
 		return Result{Path: path}, err
 	}
 	res := Result{Path: path}
