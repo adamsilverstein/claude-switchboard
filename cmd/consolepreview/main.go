@@ -149,6 +149,17 @@ func fixture(n int, bare bool) []ui.Row {
 			t.ContextWindow = windows[i%len(windows)]
 			t.ContextTokens = used[i%len(used)]
 			t.PermissionMode = modes[i%len(modes)]
+			t.Usage = &ui.Usage{
+				CostUSD:      float64(i)*4.13 + 0.87,
+				Wall:         time.Duration(i+1) * 47 * time.Minute,
+				API:          time.Duration(i+1) * 63 * time.Minute,
+				LinesAdded:   i * 37,
+				LinesRemoved: i * 4,
+				// One session has never made a request, and one is
+				// on a cold cache: both are shapes the readout has
+				// to render without inventing a number.
+				Cache: cache(i),
+			}
 		}
 		status := statuses[i%len(statuses)]
 		if t.Waiting {
@@ -174,9 +185,28 @@ func account(bare bool) appui.Account {
 	if bare {
 		return appui.Account{}
 	}
-	five, seven := 31, 12
+	five, seven, spend := 31, 12, 68
 	return appui.Account{
-		Usage5hPct: &five, Usage5hResetsIn: "3h 12m",
-		Usage7dPct: &seven, Usage7dResetsIn: "4d 14h",
+		Shim:          true,
+		Usage5hPct:    &five,
+		Usage7dPct:    &seven,
+		UsageSpendPct: &spend,
+
+		Usage5hResetsIn:    "3h 12m",
+		Usage7dResetsIn:    "4d 14h",
+		UsageSpendResetsIn: "4d 14h",
+	}
+}
+
+// cache is the prompt cache for one fixture row, cycling through the three
+// states the readout has to render: reporting, cold, and never asked.
+func cache(i int) *ui.Cache {
+	switch i % 3 {
+	case 0:
+		return &ui.Cache{Warm: true, TTL: "1h", Requests: 6 + i, Misses: 0, HitRatio: 0.86}
+	case 1:
+		return &ui.Cache{Warm: false, Requests: 22, Misses: 3, HitRatio: 0.41}
+	default:
+		return nil
 	}
 }

@@ -20,11 +20,48 @@
       <div class="block" id="modellist"></div>
     </div>
 
-    <div class="meter" id="usage7d" hidden>
-      <span class="label">Usage &middot; 7 days</span>
-      <div class="big"><b id="usage7dPct"></b><span>of window</span></div>
-      <div class="bar" id="usage7dBar"><i></i><u></u></div>
-      <span class="note" id="usage7dNote"></span>
+    <!-- The account's rate-limit windows. Claude Code reports these three
+         and no others: the per-model weekly window that /usage draws is
+         computed inside the process and never leaves it, so there is no
+         Fable meter to draw however much one would want one.
+
+         Each is hidden until a reading arrives. A window the account does
+         not have - the spend limit, on everything but a gateway account -
+         simply never appears. -->
+    <div id="usage" hidden>
+      <div class="meter" id="usage5h" hidden>
+        <span class="label">Session &middot; 5 hours</span>
+        <div class="big"><b id="usage5hPct"></b><span>of window</span></div>
+        <div class="bar" id="usage5hBar"><i></i><u></u></div>
+        <span class="note" id="usage5hNote"></span>
+      </div>
+
+      <div class="meter" id="usage7d" hidden>
+        <span class="label">Week &middot; all models</span>
+        <div class="big"><b id="usage7dPct"></b><span>of window</span></div>
+        <div class="bar" id="usage7dBar"><i></i><u></u></div>
+        <span class="note" id="usage7dNote"></span>
+      </div>
+
+      <div class="meter" id="usageSpend" hidden>
+        <span class="label">Spend limit</span>
+        <div class="big"><b id="usageSpendPct"></b><span>of budget</span></div>
+        <div class="bar" id="usageSpendBar"><i></i><u></u></div>
+        <span class="note" id="usageSpendNote"></span>
+      </div>
+    </div>
+
+    <!-- Shown in place of the meters when no session on this machine has
+         the shim installed. An empty corner where the numbers should be
+         reads as a bug; naming the one command that fixes it does not. -->
+    <div class="block" id="usagehint" hidden>
+      <span class="label">Usage</span>
+      <p>Not reported by any session here. To fill in usage, context and
+         cost, chain switchboard into your Claude Code statusline:</p>
+      <!-- The flag is held together: browsers break a line after a hyphen,
+           and "switchboard statusline --" above "install" reads as a
+           command that does not exist. -->
+      <code>switchboard statusline <span>--install</span></code>
     </div>
 
     <span id="polled"></span>
