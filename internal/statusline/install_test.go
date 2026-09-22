@@ -317,3 +317,61 @@ func TestInstallRefusesInvalidJSON(t *testing.T) {
 		t.Errorf("file changed:\n%s", raw)
 	}
 }
+
+// An install and an uninstall in the same second must not share a backup,
+// or the second would overwrite the only copy of the original file.
+func TestBackupsDoNotOverwriteEachOther(t *testing.T) {
+	body := `{"statusLine": {"type": "command", "command": "hud"}}`
+	path := write(t, body)
+	in, err := statusline.Install(path, "/bin/switchboard")
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := statusline.Uninstall(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if in.Backup == out.Backup {
+		t.Fatalf("install and uninstall both backed up to %s", in.Backup)
+	}
+	if saved, _ := os.ReadFile(in.Backup); string(saved) != body {
+		t.Errorf("install's backup = %q, want the original file", saved)
+	}
+}
+
+// settings.json can hold credentials in its env block, so neither the
+// rewritten file nor its backup may be more readable than the original.
+func TestInstallKeepsTheFileMode(t *testing.T) {
+	path := write(t, `{"statusLine": {"type": "command", "command": "hud"}}`)
+	if err := os.Chmod(path, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	res, err := statusline.Install(path, "/bin/switchboard")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range []string{path, res.Backup} {
+		info, err := os.Stat(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := info.Mode().Perm(); got != 0o600 {
+			t.Errorf("%s mode = %o, want 600", filepath.Base(p), got)
+		}
+	}
+}
+
+// A settings file the installer creates starts private.
+func TestInstallCreatesAPrivateFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "settings.json")
+	if _, err := statusline.Install(path, "/bin/switchboard"); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := info.Mode().Perm(); got != 0o600 {
+		t.Errorf("mode = %o, want 600", got)
+	}
+}

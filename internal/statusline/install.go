@@ -350,13 +350,21 @@ func dropStatusLine(raw []byte) ([]byte, error) {
 // beside it. The write is atomic, because this is somebody's live settings
 // file and a half-written one would break every Claude Code session on the
 // machine.
+//
+// Both the backup and the replacement keep the original file's mode.
+// settings.json can carry credentials in its env block, so a file somebody
+// made private must not come back world-readable. A file this creates
+// starts private.
 func write(path string, prev, next []byte) (backup string, err error) {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return "", err
 	}
+	mode := os.FileMode(0o600)
+	if info, err := os.Stat(path); err == nil {
+		mode = info.Mode().Perm()
+	}
 	if len(prev) > 0 {
-		backup = fmt.Sprintf("%s.bak-switchboard-%s", path, time.Now().Format("20060102-150405"))
-		if err := os.WriteFile(backup, prev, 0o644); err != nil {
+		if backup, err = backupFile(path, prev, mode); err != nil {
 			return "", err
 		}
 	}
@@ -372,8 +380,36 @@ func write(path string, prev, next []byte) (backup string, err error) {
 	if err := tmp.Close(); err != nil {
 		return backup, err
 	}
-	if err := os.Chmod(tmp.Name(), 0o644); err != nil {
+	if err := os.Chmod(tmp.Name(), mode); err != nil {
 		return backup, err
 	}
 	return backup, os.Rename(tmp.Name(), path)
+}
+
+// backupFile writes prev to a new, timestamped file beside path. The name
+// is only unique to the second, and an install followed by an uninstall
+// can easily land in the same one, so the file is created exclusively and
+// a counter is added on a clash rather than overwriting the earlier copy.
+func backupFile(path string, prev []byte, mode os.FileMode) (string, error) {
+	base := fmt.Sprintf("%s.bak-switchboard-%s", path, time.Now().Format("20060102-150405"))
+	for n := 1; ; n++ {
+		name := base
+		if n > 1 {
+			name = fmt.Sprintf("%s-%d", base, n)
+		}
+		f, err := os.OpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+		if errors.Is(err, os.ErrExist) {
+			continue
+		} else if err != nil {
+			return "", err
+		}
+		if _, err := f.Write(prev); err != nil {
+			f.Close()
+			return "", err
+		}
+		if err := f.Close(); err != nil {
+			return "", err
+		}
+		return name, os.Chmod(name, mode)
+	}
 }
