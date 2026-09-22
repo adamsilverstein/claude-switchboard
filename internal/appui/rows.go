@@ -52,6 +52,7 @@ func agentAge(a registry.Agent, act activity.Activity) time.Time {
 	return time.Time{}
 }
 
+// telemetry combines registry, transcript, git, forge, and statusline data.
 func (b Builder) telemetry(a registry.Agent, act activity.Activity, tty string) ui.Telemetry {
 	t := ui.Telemetry{
 		Model:          activity.ModelDisplayName(act.Model),
@@ -99,29 +100,70 @@ func (b Builder) telemetry(a registry.Agent, act activity.Activity, tty string) 
 		if n, ok := p.Tokens(); ok {
 			t.ContextTokens = n
 		}
+		t.Usage = sessionUsage(p)
 	}
 	return t
 }
 
+// sessionUsage lifts the session ledger out of a statusline payload.
+// Returns nil when the payload carries no cost block, which is how a
+// Claude Code too old to send one degrades.
+func sessionUsage(p statusline.Payload) *ui.Usage {
+	if p.Cost == nil {
+		return nil
+	}
+	u := &ui.Usage{
+		CostUSD:      p.Cost.USD,
+		Wall:         time.Duration(p.Cost.DurationMS) * time.Millisecond,
+		API:          time.Duration(p.Cost.APIDurationMS) * time.Millisecond,
+		LinesAdded:   p.Cost.LinesAdded,
+		LinesRemoved: p.Cost.LinesRemoved,
+	}
+	// The cache block is only sent once the session has made a request,
+	// so an opening session reports cost with no cache reading.
+	if c := p.PromptCache; c != nil {
+		u.Cache = &ui.Cache{
+			Warm:     c.Warm,
+			TTL:      c.TTL,
+			Requests: c.Requests,
+			Misses:   c.Misses,
+			HitRatio: c.HitRatio,
+		}
+	}
+	return u
+}
+
 // AccountUsage reads the machine-wide rate limits the shim records. Without
-// the shim there is nothing to read, and the panels that show it are omitted.
+// the shim there is nothing to read, and the page says so rather than
+// drawing three meters at zero.
+//
+// Claude Code reports only these windows. The per-model weekly window that
+// `/usage` draws - "Current week (Fable)" - is computed inside the process
+// and never reaches the statusline pipe or any file, so it cannot appear
+// here however much one would like it to.
 func AccountUsage(statuslineDir string, now time.Time) Account {
 	var acct Account
-	five, seven, ok := statusline.Account(statuslineDir)
+	w, ok := statusline.Account(statuslineDir)
 	if !ok {
 		return acct
 	}
-	if pct, ok := five.Pct(); ok {
-		acct.Usage5hPct = &pct
-		if at, ok := five.Resets(); ok {
-			acct.Usage5hResetsIn = FormatDuration(at.Sub(now))
-		}
-	}
-	if pct, ok := seven.Pct(); ok {
-		acct.Usage7dPct = &pct
-		if at, ok := seven.Resets(); ok {
-			acct.Usage7dResetsIn = FormatDuration(at.Sub(now))
-		}
-	}
+	acct.Shim = true
+	acct.Usage5hPct, acct.Usage5hResetsIn = meter(w.FiveHour, now)
+	acct.Usage7dPct, acct.Usage7dResetsIn = meter(w.SevenDay, now)
+	acct.UsageSpendPct, acct.UsageSpendResetsIn = meter(w.SpendLimit, now)
 	return acct
+}
+
+// meter formats one rate-limit window. A nil percentage is the signal that
+// the window carries no reading and its panel should not be drawn.
+func meter(w *statusline.Window, now time.Time) (*int, string) {
+	pct, ok := w.Pct()
+	if !ok {
+		return nil, ""
+	}
+	var in string
+	if at, ok := w.Resets(); ok {
+		in = FormatDuration(at.Sub(now))
+	}
+	return &pct, in
 }

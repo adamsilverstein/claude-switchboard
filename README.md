@@ -119,6 +119,7 @@ switchboard list --all      # include dead entries and sessions no window shows
 switchboard where <agent>   # which window is the agent in?
 switchboard focus <agent>   # jump to it
 switchboard focus <agent> --dry-run   # print the commands instead
+switchboard statusline --install      # turn on usage, context and cost
 ```
 
 A bare `switchboard` opens the picker itself:
@@ -224,17 +225,26 @@ repeats across most rows, and the summary is what tells agents apart - but it
 is still filtered and sorted on. Dead agents stay listed greyed out so you
 can see what just finished; they sort last under every key.
 
-### Session telemetry (optional)
+### Session telemetry and usage (optional)
 
-Three of the numbers the app window can show - the display name of the model,
-the size of its context window, and how much of your rate limit is spent -
-exist nowhere on disk. Claude Code pipes them into whatever command you have
-configured as your `statusLine`, and forgets them. Switchboard is a separate
-process and never sees that pipe.
+Most of what the app window can tell you about a session's spending exists
+nowhere on disk: the display name of the model, the size of its context
+window, what the session has cost, and how much of your rate limit is gone.
+Claude Code pipes all of it into whatever command you have configured as
+your `statusLine`, and forgets it. Switchboard is a separate process and
+never sees that pipe.
 
-If you want those numbers, chain switchboard in front of your statusline. It
-copies the payload to `~/.claude/switchboard/statusline/<sessionId>.json` on
-its way past and runs what you had before, unchanged:
+If you want those numbers, chain switchboard in front of your statusline:
+
+```
+switchboard statusline --install
+```
+
+That rewrites the `statusLine` command in `~/.claude/settings.json` so
+switchboard runs first and hands the payload to whatever you had before,
+unchanged. It backs the file up beside itself, touches nothing but that one
+string, and reports what it did. `switchboard statusline --uninstall` puts
+it back. If you would rather do it yourself, the setting it writes is:
 
 ```jsonc
 // ~/.claude/settings.json
@@ -245,14 +255,27 @@ its way past and runs what you had before, unchanged:
 ```
 
 With nothing to wrap, `switchboard statusline` on its own is a valid (empty)
-statusline that still records the payload.
+statusline that still records the payload, which lands in
+`~/.claude/switchboard/statusline/<sessionId>.json`.
 
-This is entirely optional. Sessions without it keep every other column; the
-context percentage and the usage meter are omitted rather than shown blank.
-The shim never fails: an unreadable payload is dropped and your statusline
-still renders, because losing telemetry for one session is a much smaller
-problem than replacing your prompt with an error message. Files for sessions
-untouched for a month are swept up automatically.
+With the shim in place the app window gains a context percentage per
+session, a usage cell showing what that session has cost and how its prompt
+cache is holding, and a sidebar panel for the account's rate-limit windows.
+
+**Three windows, and no more.** Claude Code reports the five-hour window,
+the seven-day window across all models, and - on gateway accounts - the
+spend limit. The per-model weekly window that `/usage` draws ("Current week
+(Fable)") is computed inside the Claude Code process and never reaches the
+statusline pipe or any file on disk, so no amount of reading around locally
+will produce it.
+
+This is all entirely optional. Sessions without the shim keep every other
+column; the context percentage, the cost and the meters are omitted rather
+than shown blank, and the sidebar says how to turn them on. The shim never
+fails: an unreadable payload is dropped and your statusline still renders,
+because losing telemetry for one session is a much smaller problem than
+replacing your prompt with an error message. Files for sessions untouched
+for a month are swept up automatically.
 
 ## How it works
 

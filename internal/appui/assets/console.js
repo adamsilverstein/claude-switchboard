@@ -406,7 +406,19 @@ function renderSidebar(s) {
   facets("repos", "repolist", s.agents, (a) => a.repo, (a) => a.branch || "");
   facets("models", "modellist", s.agents, (a) => a.model, () => "");
 
-  meter("usage7d", s.account.usage7dPct, s.account.usage7dResetsIn ? "resets in " + s.account.usage7dResetsIn : "");
+  // Three windows, each drawn only where there is a reading. Without the
+  // shim there are none at all, and the hint that says how to get them
+  // takes the space instead of three meters agreeing on nothing.
+  const acct = s.account;
+  const drawn = [
+    meter("usage5h", acct.usage5hPct, resetNote(acct.usage5hResetsIn)),
+    meter("usage7d", acct.usage7dPct, resetNote(acct.usage7dResetsIn)),
+    meter("usageSpend", acct.usageSpendPct, resetNote(acct.usageSpendResetsIn)),
+  ].some(Boolean);
+  // The frame has to go when every meter inside it has, or the sidebar
+  // keeps a gap where the panel used to be.
+  $("usage").hidden = !drawn;
+  $("usagehint").hidden = acct.shim;
 
   const age = s.polledAt ? Math.max(0, Math.round((Date.now() - Date.parse(s.polledAt)) / 1000)) : null;
   $("polled").textContent = age === null ? "" : "polled " + age + "s ago";
@@ -448,17 +460,27 @@ function facets(blockId, listId, rows, keyOf, noteOf) {
   }
 }
 
+// resetNote describes when a rate-limit window rolls over, when known.
+function resetNote(inHowLong) {
+  return inHowLong ? "resets in " + inHowLong : "";
+}
+
+// meter draws one rate-limit window and reports whether it drew anything,
+// so the caller can drop the frame around a set of meters that are all
+// absent.
 function meter(id, pct, note) {
   const box = $(id);
-  // A missing reading means the shim is not installed for any session. The
-  // panel is omitted rather than shown at zero, which would be a lie.
+  // A missing reading means either that the shim is not installed or that
+  // the account has no such window. The panel is omitted rather than shown
+  // at zero, which would be a lie in both cases.
   box.hidden = pct === null || pct === undefined;
-  if (box.hidden) return;
+  if (box.hidden) return false;
   $(id + "Pct").textContent = pct + "%";
   const b = $(id + "Bar");
   b.replaceChildren(...bar(pct, pct >= USAGE_ALERT).childNodes);
   b.classList.toggle("over", pct >= USAGE_ALERT);
   $(id + "Note").textContent = note;
+  return true;
 }
 
 function renderToolbar(s) {
@@ -559,7 +581,7 @@ function rowEl(a, cur, s) {
 
   const nameCell = el("span", "name-cell");
   nameCell.append(line("name ellipsis", a.name));
-  const sub = [a.model, repoLabel(a)].filter(Boolean).join(" · ");
+  const sub = [a.model, a.usage ? a.usage.cost : "", repoLabel(a)].filter(Boolean).join(" · ");
   if (sub) nameCell.append(line("sub ellipsis", sub));
   r.append(nameCell);
 
@@ -658,7 +680,7 @@ function renderReadout(a) {
   cells.append(sessionCell(a));
   const ctx = contextCell(a);
   if (ctx) cells.append(ctx);
-  const usage = usageCell();
+  const usage = usageCell(a);
   if (usage) cells.append(usage);
   cells.append(locationCell(a));
 
@@ -694,6 +716,7 @@ function stripLine(a) {
   return [
     a.model,
     a.contextPct === null || a.contextPct === undefined ? "" : "ctx " + a.contextPct + "%",
+    a.usage ? a.usage.cost : "",
     a.elapsed, repoLabel(a), a.ref ? a.ref + " " + a.refTitle : "", a.tty,
     a.permissionMode ? a.permissionMode + " mode" : "",
   ].filter(Boolean).join(" · ");
@@ -744,18 +767,29 @@ function contextCell(a) {
   return c;
 }
 
-// The five-hour window rather than the seven-day one: the sidebar already
-// shows seven days, and a readout cell that repeats the sidebar and never
-// changes as the cursor moves is a quarter of the readout wasted.
-function usageCell() {
-  const acct = state.snap.account;
-  const pct = acct.usage5hPct;
-  if (pct === null || pct === undefined) return null;
-  const c = cell("Usage · 5 hours");
+// What this session has spent. The account's own windows live in the
+// sidebar, where they belong: they are the same on every row, and a readout
+// cell that never changes as the cursor moves is a quarter of the readout
+// wasted.
+//
+// Cost leads because it is the number people come looking for. The two
+// durations are beneath it because their relationship is the interesting
+// part - a session whose API time far exceeds its wall time has been
+// running subagents, and one where the two are close has been waiting on a
+// single conversation.
+function usageCell(a) {
+  const u = a.usage;
+  if (!u) return null;
+  const c = cell("Usage");
   const big = el("div", "big");
-  big.append(el("b", null, pct + "%"), el("span", null, "all agents"));
-  c.append(big, bar(pct, pct >= USAGE_ALERT));
-  c.append(line("note", acct.usage5hResetsIn ? "resets in " + acct.usage5hResetsIn : ""));
+  big.append(el("b", null, u.cost), el("span", null, "this session"));
+  c.append(big);
+  if (u.api || u.wall) {
+    c.append(line("line soft", [u.api ? u.api + " api" : "", u.wall ? u.wall + " wall" : ""]
+      .filter(Boolean).join(" · ")));
+  }
+  if (u.lines) c.append(line("line soft", u.lines + " lines"));
+  if (u.cache) c.append(line("note", u.cache));
   return c;
 }
 

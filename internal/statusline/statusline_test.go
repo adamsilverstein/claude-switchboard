@@ -175,14 +175,14 @@ func TestAccountTakesTheFreshestFile(t *testing.T) {
 	write("old.json", `{"rate_limits":{"seven_day":{"used_percentage":90}}}`, time.Hour)
 	write("new.json", `{"rate_limits":{"seven_day":{"used_percentage":12},"five_hour":{"used_percentage":31}}}`, time.Minute)
 
-	five, seven, ok := Account(dir)
+	w, ok := Account(dir)
 	if !ok {
 		t.Fatal("Account found nothing")
 	}
-	if pct, _ := seven.Pct(); pct != 12 {
+	if pct, _ := w.SevenDay.Pct(); pct != 12 {
 		t.Errorf("seven day = %d, want 12 from the freshest file", pct)
 	}
-	if pct, _ := five.Pct(); pct != 31 {
+	if pct, _ := w.FiveHour.Pct(); pct != 31 {
 		t.Errorf("five hour = %d, want 31", pct)
 	}
 }
@@ -201,7 +201,7 @@ func TestAccountPrunesAbandonedFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, _, ok := Account(dir); !ok {
+	if _, ok := Account(dir); !ok {
 		t.Fatal("Account found nothing")
 	}
 	if _, err := os.Stat(stale); !os.IsNotExist(err) {
@@ -214,10 +214,129 @@ func TestAccountPrunesAbandonedFiles(t *testing.T) {
 
 // No shim installed anywhere is the normal case for a fresh machine.
 func TestAccountWithNoShimInstalled(t *testing.T) {
-	if _, _, ok := Account(t.TempDir()); ok {
+	if _, ok := Account(t.TempDir()); ok {
 		t.Error("Account reported limits with no files present")
 	}
-	if _, _, ok := Account(filepath.Join(t.TempDir(), "missing")); ok {
+	if _, ok := Account(filepath.Join(t.TempDir(), "missing")); ok {
 		t.Error("Account reported limits with no directory present")
+	}
+}
+
+// A payload with no rate_limits still proves the shim is installed, so the
+// app must not tell the user to install it.
+func TestAccountWithoutRateLimitsStillFindsTheShim(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "s.json"), []byte(`{"cost":{"total_cost_usd":1}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	w, ok := Account(dir)
+	if !ok {
+		t.Fatal("Account missed a shim payload that carries no rate_limits")
+	}
+	if w.Any() {
+		t.Error("windows read with no rate_limits in the payload")
+	}
+}
+
+// The blocks the app window's usage readout is built from. Every one is
+// optional in the payload, so each is asserted both present and absent.
+const usagePayload = `{
+  "session_id": "bbbb1111-2222-3333-4444-555566667777",
+  "cost": {
+    "total_cost_usd": 15.243,
+    "total_duration_ms": 693000,
+    "total_api_duration_ms": 1857000,
+    "total_lines_added": 128,
+    "total_lines_removed": 14
+  },
+  "prompt_cache": {
+    "warm": true, "ttl": "1h", "requests": 6, "misses": 0, "hit_ratio": 0.86
+  },
+  "rate_limits": {
+    "five_hour": {"used_percentage": 10, "resets_at": 1787740000},
+    "seven_day": {"used_percentage": 3, "resets_at": 1788109200},
+    "spend_limit": {"used_percentage": 47, "resets_at": 1788109200}
+  }
+}`
+
+// TestPayloadCarriesTheSessionLedger verifies every cost and cache field.
+func TestPayloadCarriesTheSessionLedger(t *testing.T) {
+	p := parse(t, usagePayload)
+	if p.Cost == nil {
+		t.Fatal("no cost block")
+	}
+	if p.Cost.USD != 15.243 {
+		t.Errorf("cost = %v, want 15.243", p.Cost.USD)
+	}
+	if p.Cost.APIDurationMS != 1857000 || p.Cost.DurationMS != 693000 {
+		t.Errorf("durations = api %d, wall %d", p.Cost.APIDurationMS, p.Cost.DurationMS)
+	}
+	if p.Cost.LinesAdded != 128 || p.Cost.LinesRemoved != 14 {
+		t.Errorf("lines = +%d/-%d", p.Cost.LinesAdded, p.Cost.LinesRemoved)
+	}
+	if p.PromptCache == nil {
+		t.Fatal("no prompt cache block")
+	}
+	if !p.PromptCache.Warm || p.PromptCache.TTL != "1h" || p.PromptCache.HitRatio != 0.86 {
+		t.Errorf("cache = %+v", *p.PromptCache)
+	}
+}
+
+// Only gateway accounts have a spend limit; everyone else has the same
+// payload with that one key missing.
+func TestSpendLimitIsOptional(t *testing.T) {
+	if pct, ok := parse(t, usagePayload).RateLimits.SpendLimit.Pct(); !ok || pct != 47 {
+		t.Errorf("spend limit = %d, %v; want 47, true", pct, ok)
+	}
+	if _, ok := parse(t, fullPayload).RateLimits.SpendLimit.Pct(); ok {
+		t.Error("a payload with no spend_limit reported one")
+	}
+}
+
+// A Claude Code too old to send these blocks must read as silence, not as
+// a session that has cost nothing.
+func TestALedgerlessPayloadCarriesNoLedger(t *testing.T) {
+	p := parse(t, fullPayload)
+	if p.Cost != nil {
+		t.Errorf("cost = %+v, want nil", *p.Cost)
+	}
+	if p.PromptCache != nil {
+		t.Errorf("prompt cache = %+v, want nil", *p.PromptCache)
+	}
+}
+
+// TestAccountCarriesEveryWindow verifies the freshest payload is returned whole.
+func TestAccountCarriesEveryWindow(t *testing.T) {
+	dir := t.TempDir()
+	if err := Store(dir, []byte(usagePayload)); err != nil {
+		t.Fatal(err)
+	}
+	w, ok := Account(dir)
+	if !ok {
+		t.Fatal("Account found nothing")
+	}
+	if !w.Any() {
+		t.Error("Any() = false with three windows present")
+	}
+	for _, c := range []struct {
+		name string
+		win  *Window
+		want int
+	}{
+		{"five hour", w.FiveHour, 10},
+		{"seven day", w.SevenDay, 3},
+		{"spend limit", w.SpendLimit, 47},
+	} {
+		if pct, ok := c.win.Pct(); !ok || pct != c.want {
+			t.Errorf("%s = %d, %v; want %d, true", c.name, pct, ok, c.want)
+		}
+	}
+}
+
+// A payload whose rate_limits block is there but empty is a real shape:
+// the shim is installed and reporting, and there is simply nothing to draw.
+func TestWindowsAnyIsFalseWhenNoWindowReads(t *testing.T) {
+	if (Windows{}).Any() {
+		t.Error("Any() = true on empty windows")
 	}
 }

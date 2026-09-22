@@ -11,6 +11,7 @@ package appui
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/adamsilverstein/claude-switchboard/internal/registry"
@@ -60,14 +61,25 @@ type Snapshot struct {
 	AnyRef     bool `json:"anyRef"`
 }
 
-// Account is the machine-wide usage the statusline shim records. Both
-// windows are pointers: absent is not zero, and a missing shim must render
-// as an omitted panel rather than a meter reading 0%.
+// Account is the machine-wide usage the statusline shim records. Every
+// window is a pointer: absent is not zero, and a window the account does
+// not have must render as an omitted panel rather than a meter at 0%.
 type Account struct {
 	Usage5hPct      *int   `json:"usage5hPct"`
 	Usage5hResetsIn string `json:"usage5hResetsIn,omitempty"`
 	Usage7dPct      *int   `json:"usage7dPct"`
 	Usage7dResetsIn string `json:"usage7dResetsIn,omitempty"`
+
+	// UsageSpend is the overage budget, which only gateway accounts
+	// have. Everyone else simply has no such window.
+	UsageSpendPct      *int   `json:"usageSpendPct"`
+	UsageSpendResetsIn string `json:"usageSpendResetsIn,omitempty"`
+
+	// Shim says whether any session on this machine has the statusline
+	// shim installed. False is the difference between "you are using
+	// none of your quota" and "nothing here can see your quota", and the
+	// page prints an install hint rather than a set of empty meters.
+	Shim bool `json:"shim"`
 }
 
 // AgentView is one row, formatted. Numbers arrive as strings that are ready
@@ -114,6 +126,28 @@ type AgentView struct {
 	TTY       string `json:"tty,omitempty"`
 	Tmux      string `json:"tmux,omitempty"`
 	Focusable bool   `json:"focusable"`
+
+	// Usage is what the session has spent, from the statusline shim.
+	// Nil when the shim is not installed for it.
+	Usage *UsageView `json:"usage"`
+}
+
+// UsageView is one session's ledger, formatted. As everywhere else here,
+// the numbers cross as strings so both front ends agree on how a dollar
+// amount and a worked duration read.
+type UsageView struct {
+	Cost string `json:"cost"`           // "$15.24"
+	API  string `json:"api,omitempty"`  // "30m 57s" spent waiting on the model
+	Wall string `json:"wall,omitempty"` // "11m 33s" since the session opened
+
+	// Lines is the session's net effect on the tree, and is empty when
+	// it has not touched a file - which is the common case for a
+	// session that has only been read from.
+	Lines string `json:"lines,omitempty"` // "+128 / -14"
+
+	// Cache is the prompt cache in one phrase, "warm 1h · 86% cached ·
+	// no misses". Empty before the session has made a request.
+	Cache string `json:"cache,omitempty"`
 }
 
 // view formats one row for the page.
@@ -153,7 +187,55 @@ func view(now time.Time, r ui.Row) AgentView {
 	if t.Elapsed > 0 {
 		v.Elapsed = FormatDuration(t.Elapsed)
 	}
+	v.Usage = usageView(t.Usage)
 	return v
+}
+
+// usageView formats a session's ledger. Each line is omitted when there is
+// nothing to say: a session that has changed no code should not claim
+// "+0 / -0", which reads as a measurement rather than as silence.
+func usageView(u *ui.Usage) *UsageView {
+	if u == nil {
+		return nil
+	}
+	v := &UsageView{Cost: FormatUSD(u.CostUSD)}
+	if u.API > 0 {
+		v.API = FormatSpan(u.API)
+	}
+	if u.Wall > 0 {
+		v.Wall = FormatSpan(u.Wall)
+	}
+	if u.LinesAdded > 0 || u.LinesRemoved > 0 {
+		v.Lines = fmt.Sprintf("+%d / -%d", u.LinesAdded, u.LinesRemoved)
+	}
+	v.Cache = formatCache(u.Cache)
+	return v
+}
+
+// formatCache renders the prompt cache as the one phrase that answers the
+// question worth asking: is this session re-sending its context window
+// every turn, or reading it back?
+func formatCache(c *ui.Cache) string {
+	if c == nil || c.Requests == 0 {
+		return ""
+	}
+	warmth := "cold"
+	if c.Warm {
+		warmth = "warm"
+	}
+	if c.TTL != "" {
+		warmth += " " + c.TTL
+	}
+	parts := []string{warmth, fmt.Sprintf("%d%% cached", int(c.HitRatio*100+0.5))}
+	switch c.Misses {
+	case 0:
+		parts = append(parts, "no misses")
+	case 1:
+		parts = append(parts, "1 miss")
+	default:
+		parts = append(parts, fmt.Sprintf("%d misses", c.Misses))
+	}
+	return strings.Join(parts, " · ")
 }
 
 // statusWord is the word the row shows. A dead agent is "dead" whatever the
@@ -192,6 +274,36 @@ func FormatTokens(n int) string {
 		return fmt.Sprintf("%dk", n/1000)
 	default:
 		return fmt.Sprintf("%d", n)
+	}
+}
+
+// FormatUSD renders a cost the way a bill reads. Sessions run from
+// fractions of a cent to tens of dollars, so anything under a dollar keeps
+// a third digit rather than rounding a real cost to "$0.00".
+func FormatUSD(usd float64) string {
+	if usd < 0 {
+		usd = 0
+	}
+	if usd > 0 && usd < 1 {
+		return fmt.Sprintf("$%.3f", usd)
+	}
+	return fmt.Sprintf("$%.2f", usd)
+}
+
+// FormatSpan renders a worked duration the way `/usage` prints one: "48s",
+// "30m 57s", "2h 04m". Distinct from FormatDuration, which answers "how
+// long ago" and has no use for the seconds.
+func FormatSpan(d time.Duration) string {
+	if d < 0 {
+		d = 0
+	}
+	switch {
+	case d < time.Minute:
+		return fmt.Sprintf("%ds", int(d.Seconds()))
+	case d < time.Hour:
+		return fmt.Sprintf("%dm %02ds", int(d.Minutes()), int(d.Seconds())%60)
+	default:
+		return fmt.Sprintf("%dh %02dm", int(d.Hours()), int(d.Minutes())%60)
 	}
 }
 

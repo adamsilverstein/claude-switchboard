@@ -203,7 +203,13 @@ html, body {
 .facet > span { margin-left: auto; padding-left: 8px; color: var(--muted); flex: none; white-space: nowrap; }
 .facet[aria-pressed="true"] { color: var(--accent-ink); font-weight: 500; }
 
-.meter { display: flex; flex-direction: column; gap: 10px; padding: 13px 12px; border: 1px solid var(--rule-frame); }
+/* The windows stack into one panel rather than three floating boxes: they
+ * are three readings of the same thing, and three separate frames with the
+ * sidebar's 24px between them would claim otherwise - as well as costing
+ * enough height to push the list's own controls off a short screen. */
+#usage { display: flex; flex-direction: column; }
+.meter { display: flex; flex-direction: column; gap: 9px; padding: 12px; border: 1px solid var(--rule-frame); }
+.meter + .meter { border-top: 0; }
 .meter .big { display: flex; align-items: baseline; gap: 8px; }
 .meter .big b { font-family: var(--cond); font-weight: 700; font-size: 30px; line-height: 1; }
 .meter .big span, .meter > .note { font-family: var(--mono); font-size: 10.5px; color: var(--muted); }
@@ -212,6 +218,28 @@ html, body {
 .bar i { display: block; background: var(--accent); }
 .bar u { display: block; background: var(--track); }
 .bar.over i { background: var(--alert); }
+
+/* The stand-in for the meters on a machine with no shim. It is deliberately
+ * quiet - this is a suggestion, not a warning - but the command itself is
+ * set in the frame the meters would have had, so it reads as the thing that
+ * belongs in that space. */
+#usagehint p {
+  margin: 0;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+#usagehint code {
+  padding: 8px 10px;
+  border: 1px solid var(--rule-frame);
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--secondary);
+  user-select: all;
+  overflow-x: auto;
+}
+#usagehint code span { white-space: nowrap; }
 
 #polled { margin-top: auto; font-family: var(--mono); font-size: 10.5px; color: var(--muted); }
 

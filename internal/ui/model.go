@@ -69,6 +69,38 @@ type Telemetry struct {
 	// until something is willing to pay for that.
 	Compactions      int
 	KnownCompactions bool
+
+	// Usage is what the session has spent. Nil unless the statusline
+	// shim is installed for it - no local file records any of this.
+	Usage *Usage
+}
+
+// Usage is a session's own ledger: what it has cost, how much of its wall
+// time was the model actually working, and how much code it has moved.
+//
+// It is a pointer on Telemetry rather than a set of flat fields because
+// the numbers arrive together or not at all, and "$0.00 on a session that
+// has never reported" is a different claim from "nothing reported".
+type Usage struct {
+	CostUSD      float64
+	Wall         time.Duration // since the session opened
+	API          time.Duration // of that, spent waiting on the model
+	LinesAdded   int
+	LinesRemoved int
+
+	// Cache is how the prompt cache is holding up, when the payload said.
+	Cache *Cache
+}
+
+// Cache is the prompt cache's state for one session. A cold cache on a
+// long session is the difference between reading the context window back
+// and re-sending it every turn.
+type Cache struct {
+	Warm     bool
+	TTL      string // "1h", "5m"
+	Requests int
+	Misses   int
+	HitRatio float64 // 0..1, share of input tokens served from cache
 }
 
 // ContextPct returns how full the context window is as a whole percentage,
