@@ -49,7 +49,59 @@ type Payload struct {
 	RateLimits *struct {
 		FiveHour *Window `json:"five_hour"`
 		SevenDay *Window `json:"seven_day"`
+
+		// SpendLimit is the overage budget, and only gateway
+		// accounts have one. Every other account simply omits it.
+		SpendLimit *Window `json:"spend_limit"`
 	} `json:"rate_limits"`
+
+	Cost        *Cost        `json:"cost"`
+	PromptCache *PromptCache `json:"prompt_cache"`
+}
+
+// Cost is what the session has spent so far. Claude Code sends the block
+// whole or not at all, so a nil pointer is the only "unknown" this needs.
+//
+// The two durations are different measurements and both are worth showing:
+// wall is how long you have been sitting here, API is how much of that was
+// the model actually working.
+type Cost struct {
+	USD           float64 `json:"total_cost_usd"`
+	DurationMS    int64   `json:"total_duration_ms"`
+	APIDurationMS int64   `json:"total_api_duration_ms"`
+	LinesAdded    int     `json:"total_lines_added"`
+	LinesRemoved  int     `json:"total_lines_removed"`
+}
+
+// PromptCache is how well the session's prompt cache is holding. A cold
+// cache on a long session means every turn is re-sending a context window
+// that could have been read back, which is the difference between a cheap
+// session and an expensive one.
+type PromptCache struct {
+	Warm     bool    `json:"warm"`
+	TTL      string  `json:"ttl"` // "1h", "5m"
+	Requests int     `json:"requests"`
+	Misses   int     `json:"misses"`
+	HitRatio float64 `json:"hit_ratio"` // 0..1
+}
+
+// Windows are the rate-limit windows one payload carries. Each is a
+// pointer because absent is not zero: an account with no spend limit must
+// render as no meter, not as a meter reading 0%.
+type Windows struct {
+	FiveHour   *Window
+	SevenDay   *Window
+	SpendLimit *Window
+}
+
+// Any reports whether any window carries a reading at all.
+func (w Windows) Any() bool {
+	for _, win := range []*Window{w.FiveHour, w.SevenDay, w.SpendLimit} {
+		if _, ok := win.Pct(); ok {
+			return true
+		}
+	}
+	return false
 }
 
 // Window is one rate-limit window: how much of it is spent and when it rolls
@@ -176,10 +228,10 @@ const pruneAfter = 30 * 24 * time.Hour
 // removes shim files no session has touched in a month.
 //
 // Returns false when no session on this machine has the shim installed.
-func Account(dir string) (fiveHour, sevenDay *Window, ok bool) {
+func Account(dir string) (Windows, bool) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
-		return nil, nil, false
+		return Windows{}, false
 	}
 	var newest time.Time
 	var newestName string
@@ -201,15 +253,19 @@ func Account(dir string) (fiveHour, sevenDay *Window, ok bool) {
 		}
 	}
 	if newestName == "" {
-		return nil, nil, false
+		return Windows{}, false
 	}
 	raw, err := os.ReadFile(filepath.Join(dir, newestName))
 	if err != nil {
-		return nil, nil, false
+		return Windows{}, false
 	}
 	var p Payload
 	if err := json.Unmarshal(raw, &p); err != nil || p.RateLimits == nil {
-		return nil, nil, false
+		return Windows{}, false
 	}
-	return p.RateLimits.FiveHour, p.RateLimits.SevenDay, true
+	return Windows{
+		FiveHour:   p.RateLimits.FiveHour,
+		SevenDay:   p.RateLimits.SevenDay,
+		SpendLimit: p.RateLimits.SpendLimit,
+	}, true
 }
