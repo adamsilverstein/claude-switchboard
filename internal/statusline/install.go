@@ -64,15 +64,18 @@ func Install(path, self string) (Result, error) {
 	}
 
 	res := Result{Path: path}
-	before, span, ok := command(raw)
-	res.Before = before
-	if ok && Installed(before) {
-		res.After = before
+	loc, err := command(raw)
+	if err != nil {
+		return res, err
+	}
+	res.Before = loc.value
+	if loc.ok && Installed(loc.value) {
+		res.After = loc.value
 		return res, nil
 	}
 
-	res.After = wrap(self, before)
-	next, err := replace(raw, res.After, span, ok)
+	res.After = wrap(self, loc.value)
+	next, err := replace(raw, res.After, loc)
 	if err != nil {
 		return res, err
 	}
@@ -95,13 +98,16 @@ func Uninstall(path string) (Result, error) {
 		return Result{Path: path}, err
 	}
 	res := Result{Path: path}
-	before, span, ok := command(raw)
-	res.Before, res.After = before, before
-	if !ok || !Installed(before) {
+	loc, err := command(raw)
+	if err != nil {
+		return res, err
+	}
+	res.Before, res.After = loc.value, loc.value
+	if !loc.ok || !Installed(loc.value) {
 		return res, nil
 	}
 
-	res.After = unwrap(before)
+	res.After = unwrap(loc.value)
 	var next []byte
 	if res.After == "" {
 		// Nothing was behind the shim, so there is no command to put
@@ -110,7 +116,7 @@ func Uninstall(path string) (Result, error) {
 		if next, err = dropStatusLine(raw); err != nil {
 			return res, err
 		}
-	} else if next, err = replace(raw, res.After, span, true); err != nil {
+	} else if next, err = replace(raw, res.After, loc); err != nil {
 		return res, err
 	}
 	if res.Backup, err = write(path, raw, next); err != nil {
@@ -209,83 +215,98 @@ func quote(s string) string {
 	return `"` + strings.NewReplacer(`\`, `\\`, `"`, `\"`, "$", `\$`, "`", "\\`").Replace(s) + `"`
 }
 
-// command finds the statusLine command in raw: its decoded value, the byte
-// span of the JSON string that holds it, and whether there was one at all.
-func command(raw []byte) (value string, span [2]int, ok bool) {
-	block := bytes.Index(raw, []byte(`"statusLine"`))
-	if block < 0 {
-		return "", span, false
-	}
-	i, ok := key(raw, block, `"command"`)
-	if !ok {
-		return "", span, false
-	}
-	end := i + 1
-	for end < len(raw) {
-		if raw[end] == '\\' {
-			end += 2
-			continue
-		}
-		if raw[end] == '"' {
-			end++
-			break
-		}
-		end++
-	}
-	if err := json.Unmarshal(raw[i:end], &value); err != nil {
-		return "", span, false
-	}
-	return value, [2]int{i, end}, true
+// location is where the statusLine command sits in a settings file.
+type location struct {
+	value string // the decoded command
+	span  [2]int // byte span of the JSON string holding the command
+	ok    bool   // whether statusLine has a string command at all
+	block [2]int // byte span of the statusLine value; zero when absent
 }
 
-// key finds the value of the named JSON key at or after from, returning
-// the offset of the value's opening quote.
-//
-// The search has to tell a key from a string that happens to read like
-// one: `"type": "command"` sits directly above `"command": "..."`, and
-// only the second is followed by a colon.
-func key(raw []byte, from int, name string) (int, bool) {
-	for at := from; ; {
-		rel := bytes.Index(raw[at:], []byte(name))
-		if rel < 0 {
-			return 0, false
+// command finds the statusLine command in raw. Only the top-level
+// statusLine object counts: a "command" in a hook, a nested object that
+// happens to be called statusLine, or the word inside some other string
+// must never be mistaken for it, because the installer overwrites whatever
+// span this returns. A settings file that is not a valid JSON object is an
+// error, not something to patch around.
+func command(raw []byte) (location, error) {
+	var loc location
+	if len(bytes.TrimSpace(raw)) == 0 {
+		return loc, nil
+	}
+	start, end, err := member(raw, "statusLine")
+	if err != nil || end == 0 {
+		return loc, err
+	}
+	loc.block = [2]int{start, end}
+	block := raw[start:end]
+	if bytes.TrimSpace(block)[0] != '{' {
+		return loc, nil
+	}
+	cs, ce, err := member(block, "command")
+	if err != nil || ce == 0 || block[cs] != '"' {
+		return loc, err
+	}
+	if err := json.Unmarshal(block[cs:ce], &loc.value); err != nil {
+		return loc, err
+	}
+	loc.span = [2]int{start + cs, start + ce}
+	loc.ok = true
+	return loc, nil
+}
+
+// member returns the byte span of the value of the named key in the JSON
+// object raw, looking only at that object's own keys. The end is zero when
+// the key is absent. The last occurrence wins, as it does for Claude Code's
+// own JSON parser.
+func member(raw []byte, name string) (start, end int, err error) {
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	if tok, err := dec.Token(); err != nil {
+		return 0, 0, err
+	} else if d, ok := tok.(json.Delim); !ok || d != '{' {
+		return 0, 0, errors.New("settings file is not a JSON object")
+	}
+	for dec.More() {
+		tok, err := dec.Token()
+		if err != nil {
+			return 0, 0, err
 		}
-		i := at + rel + len(name)
-		at = i
-		for i < len(raw) && isSpace(raw[i]) {
-			i++
+		var v json.RawMessage
+		if err := dec.Decode(&v); err != nil {
+			return 0, 0, err
 		}
-		if i >= len(raw) || raw[i] != ':' {
-			continue // a value, not a key
-		}
-		i++
-		for i < len(raw) && isSpace(raw[i]) {
-			i++
-		}
-		if i < len(raw) && raw[i] == '"' {
-			return i, true
+		if tok == name {
+			end = int(dec.InputOffset())
+			start = end - len(v)
 		}
 	}
+	if _, err := dec.Token(); err != nil { // the closing brace
+		return 0, 0, err
+	}
+	return start, end, nil
 }
 
-// isSpace reports whether b is JSON whitespace.
-func isSpace(b byte) bool {
-	return b == ' ' || b == '\t' || b == '\n' || b == '\r'
-}
-
-// replace puts cmd into raw. With a span it overwrites that string in
-// place; without one it inserts a whole statusLine block after the opening
-// brace, so a settings file that never had a statusline gains one.
-func replace(raw []byte, cmd string, span [2]int, inPlace bool) ([]byte, error) {
+// replace puts cmd into raw. Where there is a command it overwrites that
+// string in place. Where statusLine exists without one, it replaces the
+// statusLine value, since a second statusLine key would be ambiguous.
+// Otherwise it inserts a whole statusLine block after the opening brace,
+// so a settings file that never had a statusline gains one.
+func replace(raw []byte, cmd string, loc location) ([]byte, error) {
 	encoded, err := json.Marshal(cmd)
 	if err != nil {
 		return nil, err
 	}
-	if inPlace {
-		out := make([]byte, 0, len(raw)+len(encoded))
+	splice := func(span [2]int, with []byte) []byte {
+		out := make([]byte, 0, len(raw)+len(with))
 		out = append(out, raw[:span[0]]...)
-		out = append(out, encoded...)
-		return append(out, raw[span[1]:]...), nil
+		out = append(out, with...)
+		return append(out, raw[span[1]:]...)
+	}
+	if loc.ok {
+		return splice(loc.span, encoded), nil
+	}
+	if loc.block[1] > 0 {
+		return splice(loc.block, []byte(fmt.Sprintf(`{"type": "command", "command": %s}`, encoded))), nil
 	}
 
 	block := fmt.Sprintf("\n  \"statusLine\": {\n    \"type\": \"command\",\n    \"command\": %s\n  }", encoded)

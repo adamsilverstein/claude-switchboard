@@ -273,3 +273,47 @@ func TestUninstallWithNoSettingsFile(t *testing.T) {
 		t.Error("uninstall created a settings file")
 	}
 }
+
+// The command lookup must stay inside the top-level statusLine object. A
+// statusLine with no command of its own, followed by a hook that has one,
+// used to rewrite the hook.
+func TestInstallLeavesOtherCommandsAlone(t *testing.T) {
+	cases := map[string]string{
+		"hook after a commandless statusLine":      `{"statusLine":{"type":"command"},"hooks":[{"command":"hook"}]}`,
+		"the word statusLine in an earlier string": `{"note":"see \"statusLine\" below","hooks":[{"command":"hook"}],"statusLine":{"type":"command","command":"hud"}}`,
+		"a nested statusLine key":                  `{"profiles":{"statusLine":{"command":"nested"}},"statusLine":{"type":"command","command":"hud"}}`,
+	}
+	for name, body := range cases {
+		t.Run(name, func(t *testing.T) {
+			path := write(t, body)
+			if _, err := statusline.Install(path, "/bin/switchboard"); err != nil {
+				t.Fatal(err)
+			}
+			raw, _ := os.ReadFile(path)
+			for _, keep := range []string{`"command":"hook"`, `"command":"nested"`} {
+				if strings.Contains(body, keep) && !strings.Contains(string(raw), keep) {
+					t.Errorf("install rewrote %s:\n%s", keep, raw)
+				}
+			}
+			if got := commandOf(t, path); !statusline.Installed(got) {
+				t.Errorf("statusLine command = %q, want the shim", got)
+			}
+			if strings.Count(string(raw), `"statusLine"`) != strings.Count(body, `"statusLine"`) {
+				t.Errorf("install added a second statusLine key:\n%s", raw)
+			}
+		})
+	}
+}
+
+// A settings file that is not valid JSON must be refused, not patched.
+func TestInstallRefusesInvalidJSON(t *testing.T) {
+	body := `{"statusLine": {"command": "hud"`
+	path := write(t, body)
+	if _, err := statusline.Install(path, "/bin/switchboard"); err == nil {
+		t.Error("install accepted a settings file that is not valid JSON")
+	}
+	raw, _ := os.ReadFile(path)
+	if string(raw) != body {
+		t.Errorf("file changed:\n%s", raw)
+	}
+}
