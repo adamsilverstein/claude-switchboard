@@ -38,15 +38,23 @@ const StaleAfter = time.Hour
 // back than a tool result or two.
 const subagentTailBytes = 64 * 1024
 
+// forgetAfter is how long a session's subagents stay cached after the last
+// time anyone asked for them. Only live sessions are asked about, so this is
+// what lets an ended session's entries go.
+const forgetAfter = 10 * time.Minute
+
 // Subagents reads subagent transcripts, remembering what each one said so
 // that a poll only re-reads the files that changed since the last. A long
 // session can have spawned hundreds.
 type Subagents struct {
-	mu    sync.Mutex
-	cache map[string]cachedSubagent
+	mu        sync.Mutex
+	cache     map[string]cachedSubagent // by transcript path
+	asked     map[string]time.Time      // subagents dir -> last For
+	lastSweep time.Time
 }
 
 type cachedSubagent struct {
+	dir  string
 	size int64
 	mod  time.Time
 	sub  Subagent
@@ -54,7 +62,7 @@ type cachedSubagent struct {
 
 // NewSubagents returns an empty cache.
 func NewSubagents() *Subagents {
-	return &Subagents{cache: map[string]cachedSubagent{}}
+	return &Subagents{cache: map[string]cachedSubagent{}, asked: map[string]time.Time{}}
 }
 
 // For returns every subagent the session has spawned, in no particular
@@ -65,13 +73,17 @@ func (c *Subagents) For(projectsDir, cwd, sessionID string, now time.Time) []Sub
 		return nil
 	}
 	dir := filepath.Join(projectsDir, Slug(cwd), sessionID, "subagents")
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return nil
-	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	c.asked[dir] = now
+	c.sweep(now)
 
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		c.forget(dir, nil)
+		return nil
+	}
+	seen := map[string]bool{}
 	var subs []Subagent
 	for _, e := range entries {
 		name := e.Name()
@@ -79,6 +91,7 @@ func (c *Subagents) For(projectsDir, cwd, sessionID string, now time.Time) []Sub
 			continue
 		}
 		path := filepath.Join(dir, name)
+		seen[path] = true
 		info, err := e.Info()
 		if err != nil {
 			continue
@@ -87,6 +100,7 @@ func (c *Subagents) For(projectsDir, cwd, sessionID string, now time.Time) []Sub
 		if !ok || cached.size != info.Size() || !cached.mod.Equal(info.ModTime()) {
 			id := strings.TrimSuffix(strings.TrimPrefix(name, "agent-"), ".jsonl")
 			cached = cachedSubagent{
+				dir:  dir,
 				size: info.Size(),
 				mod:  info.ModTime(),
 				sub:  readSubagent(dir, id, path, info),
@@ -101,7 +115,34 @@ func (c *Subagents) For(projectsDir, cwd, sessionID string, now time.Time) []Sub
 		}
 		subs = append(subs, sub)
 	}
+	c.forget(dir, seen)
 	return subs
+}
+
+// forget drops the cached entries under dir whose transcripts are not in
+// seen - deleted since the last poll, or all of them when seen is nil.
+func (c *Subagents) forget(dir string, seen map[string]bool) {
+	for path, e := range c.cache {
+		if e.dir == dir && !seen[path] {
+			delete(c.cache, path)
+		}
+	}
+}
+
+// sweep drops every session nobody has asked about within forgetAfter.
+// It walks the whole cache, so it runs at most once a minute rather than
+// on every poll of every session.
+func (c *Subagents) sweep(now time.Time) {
+	if now.Sub(c.lastSweep) < time.Minute {
+		return
+	}
+	c.lastSweep = now
+	for dir, at := range c.asked {
+		if now.Sub(at) > forgetAfter {
+			delete(c.asked, dir)
+			c.forget(dir, nil)
+		}
+	}
 }
 
 type subagentMeta struct {
