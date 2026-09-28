@@ -131,9 +131,45 @@ func TestSubagentsCacheRereadsAChangedTranscript(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	f.WriteString(subagentStop + "\n")
-	f.Close()
+	if _, err := f.WriteString(subagentStop + "\n"); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
 	if got := c.For(dir, cwd, session, time.Now()); got[0].Working {
 		t.Fatal("should have noticed the stop")
+	}
+}
+
+// Entries for transcripts that were deleted, and for sessions nobody has
+// asked about in a while, must leave the cache: the app window runs for
+// days, and every session that ever spawned a subagent would otherwise stay.
+func TestSubagentsCacheForgetsWhatIsGone(t *testing.T) {
+	dir := t.TempDir()
+	path := writeSubagent(t, dir, "a1", `{"agentType":"general-purpose","description":"x"}`,
+		assistantSaid("hi")+"\n")
+	c := NewSubagents()
+	start := time.Now()
+	c.For(dir, cwd, session, start)
+	if len(c.cache) != 1 {
+		t.Fatalf("cache has %d entries, want 1", len(c.cache))
+	}
+
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	c.For(dir, cwd, session, start)
+	if len(c.cache) != 0 {
+		t.Fatalf("a deleted transcript should leave the cache, %d left", len(c.cache))
+	}
+
+	writeSubagent(t, dir, "b2", `{"agentType":"general-purpose","description":"y"}`,
+		assistantSaid("hi")+"\n")
+	c.For(dir, cwd, session, start)
+	// Another session's poll, well past the idle window, sweeps this one.
+	c.For(dir, "/Users/example/other", session, start.Add(2*forgetAfter))
+	if len(c.cache) != 0 {
+		t.Fatalf("an unasked-for session should leave the cache, %d left", len(c.cache))
 	}
 }
