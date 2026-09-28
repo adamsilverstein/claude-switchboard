@@ -162,6 +162,14 @@ func fixture(n int, bare bool) []ui.Row {
 				Cache: cache(i),
 			}
 		}
+		// The first agent has fanned out - some subagents still working,
+		// more finished - and one further down has only finished ones.
+		switch i {
+		case 0:
+			t.Subagents = subagents(now, 3, 10)
+		case 2:
+			t.Subagents = subagents(now, 0, 2)
+		}
 		status := statuses[i%len(statuses)]
 		if t.Waiting {
 			status = "idle"
@@ -178,6 +186,37 @@ func fixture(n int, bare bool) []ui.Row {
 		})
 	}
 	return rows
+}
+
+// subagents fabricates a session's spawned agents, working ones first.
+func subagents(now time.Time, working, done int) []ui.Subagent {
+	var subs []ui.Subagent
+	for i := 0; i < working+done; i++ {
+		w := i < working
+		subs = append(subs, ui.Subagent{
+			Type:        "general-purpose",
+			Description: subagentTasks[i%len(subagentTasks)],
+			Summary:     subagentSaid[i%len(subagentSaid)],
+			Working:     w,
+			Started:     now.Add(-time.Duration(i*3+2) * time.Minute),
+			Modified:    now.Add(-time.Duration(i*4+1) * time.Minute),
+		})
+	}
+	return subs
+}
+
+var subagentTasks = []string{
+	"Fix CI security#1240", "Merge trunk wpd#13446", "Fix CI wordpress-develop#6184",
+	"Fix CI gutenberg#81538", "Merge trunk gb#80427", "Fix CI gutenberg#83538",
+	"Merge trunk gb#81243", "Fix CI gutenberg#81554", "Merge trunk wpd#9870",
+	"Fix CI gutenberg#83169", "Fix CI gutenberg#71367", "Merge trunk gb#79509",
+}
+
+var subagentSaid = []string{
+	"Pushing merge and Prettier fixes.",
+	"Waiting on CI checks for autosave-loading.spec.js.",
+	"Monitoring PHPUnit job reruns; two of six are through.",
+	"CI on PR #81538 is now green.",
 }
 
 // account is what the statusline shim would have recorded, or nothing at all
