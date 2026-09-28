@@ -78,6 +78,7 @@ func newAppSource() (*appSource, error) {
 			StatuslineDir: statuslineDir,
 			Git:           git.NewCache(git.ExecRunner{}),
 			Forge:         forge.NewCache(forge.ExecRunner{}),
+			Subagents:     activity.NewSubagents(),
 		},
 	}, nil
 }

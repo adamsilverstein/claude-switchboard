@@ -11,6 +11,7 @@ package appui
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -130,7 +131,33 @@ type AgentView struct {
 	// Usage is what the session has spent, from the statusline shim.
 	// Nil when the shim is not installed for it.
 	Usage *UsageView `json:"usage"`
+
+	// Subagents are the agents the session spawned, working ones first
+	// and then the most recently finished, capped at maxSubagents. The
+	// counts are taken before the cap, so the page can say how many it
+	// is not showing.
+	Subagents        []SubagentView `json:"subagents,omitempty"`
+	SubagentsTotal   int            `json:"subagentsTotal"`
+	SubagentsWorking int            `json:"subagentsWorking"`
 }
+
+// SubagentView is one spawned agent, formatted. It carries nothing that
+// identifies a process: the page shows subagents, it never acts on one.
+type SubagentView struct {
+	Type        string `json:"type,omitempty"`
+	Description string `json:"description"`
+	Summary     string `json:"summary,omitempty"`
+	Working     bool   `json:"working"`
+
+	// Age reads differently by state: how long a working subagent has
+	// been running, or how long ago a finished one stopped.
+	Age string `json:"age"`
+}
+
+// maxSubagents bounds how many subagents cross the bridge per session. A
+// long session can have spawned hundreds, and nobody reads past the first
+// screenful of finished ones.
+const maxSubagents = 40
 
 // UsageView is one session's ledger, formatted. As everywhere else here,
 // the numbers cross as strings so both front ends agree on how a dollar
@@ -188,7 +215,58 @@ func view(now time.Time, r ui.Row) AgentView {
 		v.Elapsed = FormatDuration(t.Elapsed)
 	}
 	v.Usage = usageView(t.Usage)
+	v.Subagents, v.SubagentsWorking = subagentViews(now, t.Subagents)
+	v.SubagentsTotal = len(t.Subagents)
 	return v
+}
+
+// subagentViews orders a session's subagents the way they are worth
+// reading - the ones still working first, longest running at the top, then
+// the finished ones, most recent first - and formats the first
+// maxSubagents of them.
+func subagentViews(now time.Time, subs []ui.Subagent) ([]SubagentView, int) {
+	if len(subs) == 0 {
+		return nil, 0
+	}
+	sorted := append([]ui.Subagent(nil), subs...)
+	sort.SliceStable(sorted, func(i, j int) bool {
+		a, b := sorted[i], sorted[j]
+		if a.Working != b.Working {
+			return a.Working
+		}
+		if a.Working {
+			return a.Started.Before(b.Started)
+		}
+		return a.Modified.After(b.Modified)
+	})
+	working := 0
+	for _, s := range sorted {
+		if s.Working {
+			working++
+		}
+	}
+	if len(sorted) > maxSubagents {
+		sorted = sorted[:maxSubagents]
+	}
+	views := make([]SubagentView, 0, len(sorted))
+	for _, s := range sorted {
+		v := SubagentView{
+			Type:        s.Type,
+			Description: s.Description,
+			Summary:     s.Summary,
+			Working:     s.Working,
+		}
+		if v.Description == "" {
+			v.Description = s.Type
+		}
+		if s.Working {
+			v.Age = FormatDuration(now.Sub(s.Started))
+		} else {
+			v.Age = FormatDuration(now.Sub(s.Modified))
+		}
+		views = append(views, v)
+	}
+	return views, working
 }
 
 // usageView formats a session's ledger. Each line is omitted when there is

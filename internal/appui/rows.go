@@ -19,6 +19,9 @@ type Builder struct {
 	StatuslineDir string       // ~/.claude/switchboard/statusline
 	Git           *git.Cache   // may be nil, in which case no repository info
 	Forge         *forge.Cache // may be nil, in which case no pull requests
+
+	// Subagents may be nil, in which case no session shows any.
+	Subagents *activity.Subagents
 }
 
 // Rows enriches agents with everything the app window can learn about them.
@@ -101,6 +104,20 @@ func (b Builder) telemetry(a registry.Agent, act activity.Activity, tty string) 
 			t.ContextTokens = n
 		}
 		t.Usage = sessionUsage(p)
+	}
+	// An ended session's subagents ended with it, and are not worth a
+	// directory read every poll.
+	if b.Subagents != nil && a.Live {
+		for _, s := range b.Subagents.For(b.ProjectsDir, a.Cwd, a.SessionID, time.Now()) {
+			t.Subagents = append(t.Subagents, ui.Subagent{
+				Type:        s.Type,
+				Description: s.Description,
+				Summary:     s.Summary,
+				Working:     s.Working,
+				Started:     s.Started,
+				Modified:    s.Modified,
+			})
+		}
 	}
 	return t
 }
