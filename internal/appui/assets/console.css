@@ -400,7 +400,22 @@ body.resizing { cursor: col-resize; user-select: none; }
  * inline box. That is why a long name ran straight over the context column
  * while the summary beside it, which is a grid item, clipped correctly. */
 .row .name-cell { display: flex; flex-direction: column; min-width: 0; }
+.row .name-line { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
 .row .name { display: block; min-width: 0; font-size: var(--name-size); font-weight: 500; }
+/* How many subagents the session spawned. It never shrinks: the name gives
+ * way first, because the name is also in the readout and the tag is not. */
+.row .agents {
+  flex: none;
+  padding: 0 5px;
+  border: 1px solid var(--rule-frame);
+  font-family: var(--mono);
+  font-size: 10px;
+  line-height: 15px;
+  color: var(--muted);
+}
+.row .agents.working { border-color: var(--busy); color: var(--busy); }
+.row[aria-selected="true"] .agents { border-color: var(--on-accent-dim); color: var(--on-accent-dim); }
+.row[data-live="false"] .agents { display: none; }
 .row .sub { display: none; min-width: 0; font-family: var(--mono); font-size: 10.5px; color: var(--muted); }
 .row .ctx { display: flex; align-items: center; gap: 7px; }
 .row .ctx .bar { width: var(--bar-w); height: 7px; flex: none; }
@@ -545,6 +560,29 @@ body.resizing { cursor: col-resize; user-select: none; }
 }
 .branch { color: var(--accent-ink); }
 
+/* The subagent list scrolls inside its cell rather than growing it: the
+ * readout's height is measured and taken from the list, and a session with
+ * a dozen agents working should not squeeze the table to three rows. */
+.cell .sublist { display: flex; flex-direction: column; gap: 5px; max-height: 118px; overflow-y: auto; min-width: 0; }
+.cell .subagent { display: flex; flex: none; line-height: 1.4; align-items: baseline; gap: 7px; min-width: 0; font-family: var(--mono); font-size: 12px; color: var(--muted); }
+.cell .subagent.working { color: var(--text); }
+.cell .subagent .glyph { flex: none; font-size: 10px; }
+.cell .subagent.working .glyph { color: var(--busy); }
+.cell .subagent .what { flex: 1 1 auto; min-width: 0; }
+.cell .subagent .when { flex: none; font-size: 10.5px; color: var(--muted); }
+.cell .said { display: block; flex: none; margin: -3px 0 0 17px; line-height: 1.4; font-family: var(--mono); font-size: 10.5px; color: var(--muted); }
+.cell .fold {
+  align-self: flex-start;
+  border: 0;
+  padding: 0;
+  background: none;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--accent-ink);
+  cursor: pointer;
+}
+.cell .fold:hover { text-decoration: underline; }
+
 /* The last message is whatever the agent said, which can be several hundred
  * characters of markdown. Three lines of it is a reminder of where the
  * session got to; the rest is in the terminal this window points at. */
@@ -631,6 +669,10 @@ body.resizing { cursor: col-resize; user-select: none; }
   #cells { grid-auto-flow: row; grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .cell:nth-child(odd) { border-left: 0; }
   .cell:nth-child(n + 3) { border-top: 1px solid var(--rule-row); }
+  /* Five cells would leave Location alone on a third row, which is height
+   * the list is owed. The header already carries the tty, so Location is
+   * the one to give way when a session has subagents to show. */
+  #cells:has(.subagents) .location { display: none; }
   #filter { min-width: 200px; }
 }
 

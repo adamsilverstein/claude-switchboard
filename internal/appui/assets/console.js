@@ -62,6 +62,7 @@ const state = {
   readoutH: 0,      // measured; the stylesheet's estimate until then
   typing: false,
   confirmingStop: null,
+  showDoneSubagents: false, // one choice for every session, not per row
   noticeTimer: null,
   columns: {},      // column name -> pixel width you dragged it to
   dragging: null,   // the column being dragged, or null
@@ -580,7 +581,11 @@ function rowEl(a, cur, s) {
   r.append(line("age", a.age));
 
   const nameCell = el("span", "name-cell");
-  nameCell.append(line("name ellipsis", a.name));
+  const nameLine = el("span", "name-line");
+  nameLine.append(line("name ellipsis", a.name));
+  const agentsTag = subagentsTag(a);
+  if (agentsTag) nameLine.append(agentsTag);
+  nameCell.append(nameLine);
   const sub = [a.model, a.usage ? a.usage.cost : "", repoLabel(a)].filter(Boolean).join(" · ");
   if (sub) nameCell.append(line("sub ellipsis", sub));
   r.append(nameCell);
@@ -682,6 +687,8 @@ function renderReadout(a) {
   if (ctx) cells.append(ctx);
   const usage = usageCell(a);
   if (usage) cells.append(usage);
+  const subs = subagentsCell(a);
+  if (subs) cells.append(subs);
   cells.append(locationCell(a));
 
   $("last").hidden = !a.summary;
@@ -717,6 +724,7 @@ function stripLine(a) {
     a.model,
     a.contextPct === null || a.contextPct === undefined ? "" : "ctx " + a.contextPct + "%",
     a.usage ? a.usage.cost : "",
+    subagentsLabel(a),
     a.elapsed, repoLabel(a), a.ref ? a.ref + " " + a.refTitle : "", a.tty,
     a.permissionMode ? a.permissionMode + " mode" : "",
   ].filter(Boolean).join(" · ");
@@ -793,12 +801,76 @@ function usageCell(a) {
   return c;
 }
 
+// Subagents are shown and never selected. They have no terminal of their
+// own, so there is nothing for the cursor, Enter or Stop to act on - which
+// is why none of this is a row, and why nothing here takes keyboard focus.
+function subagentsLabel(a) {
+  if (!a.subagentsTotal) return "";
+  const n = a.subagentsTotal + (a.subagentsTotal === 1 ? " agent" : " agents");
+  return a.subagentsWorking ? n + " · " + a.subagentsWorking + " working" : n;
+}
+
+// The row's tag says a session has fanned out without taking a line of
+// the table for it; the list itself is in the readout.
+function subagentsTag(a) {
+  if (!a.subagentsTotal) return null;
+  const t = el("span", a.subagentsWorking ? "agents working" : "agents", subagentsLabel(a));
+  t.title = "Subagents this session spawned";
+  return t;
+}
+
+// Working subagents are always listed, each with the last thing it said.
+// Finished ones fold into one line you can open, because a session that has
+// run for a day can have spawned dozens, and the working few are the ones
+// worth a glance.
+function subagentsCell(a) {
+  if (!a.subagentsTotal) return null;
+  const c = cell(a.subagentsWorking ? "Subagents · " + a.subagentsWorking + " working" : "Subagents");
+  c.classList.add("subagents");
+  const list = el("div", "sublist");
+  const done = (a.subagents || []).filter((s) => !s.working);
+  for (const s of a.subagents || []) {
+    if (!s.working) continue;
+    list.append(subagentLine(s));
+    if (s.summary) {
+      const said = line("said ellipsis", s.summary);
+      said.title = s.summary;
+      list.append(said);
+    }
+  }
+  const doneCount = a.subagentsTotal - a.subagentsWorking;
+  if (doneCount > 0) {
+    const t = el("button", "fold", "✓ " + doneCount + " done " + (state.showDoneSubagents ? "▾" : "▸"));
+    t.type = "button";
+    t.tabIndex = -1;
+    t.setAttribute("aria-expanded", String(state.showDoneSubagents));
+    t.onclick = () => { state.showDoneSubagents = !state.showDoneSubagents; render(); };
+    list.append(t);
+    if (state.showDoneSubagents) {
+      for (const s of done) list.append(subagentLine(s));
+      const unsent = doneCount - done.length;
+      if (unsent > 0) list.append(line("said", "and " + unsent + " older"));
+    }
+  }
+  c.append(list);
+  return c;
+}
+
+function subagentLine(s) {
+  const l = el("div", s.working ? "subagent working" : "subagent");
+  l.append(line("glyph", s.working ? "●" : "✓"), line("what ellipsis", s.description || "subagent"),
+    line("when", s.working ? s.age : s.age + " ago"));
+  l.title = [s.type, s.summary].filter(Boolean).join(" · ");
+  return l;
+}
+
 // Where the agent is, which is the thing this window exists to answer. The
 // design's Environment cell wanted CLAUDE.md, MCP and tool tallies; none of
 // those have a source yet, and a cell full of dashes is worse than a cell
 // showing something true.
 function locationCell(a) {
   const c = cell("Location");
+  c.classList.add("location");
   if (a.tty) c.append(line("line", a.tty));
   if (a.tmux) c.append(line("line", "tmux " + a.tmux));
   if (!a.focusable) c.append(line("line soft", a.live ? "not focusable" : "no longer running"));

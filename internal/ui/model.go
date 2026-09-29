@@ -73,6 +73,21 @@ type Telemetry struct {
 	// Usage is what the session has spent. Nil unless the statusline
 	// shim is installed for it - no local file records any of this.
 	Usage *Usage
+
+	// Subagents are the agents this session spawned with the Agent tool.
+	// They are shown, never selected: a subagent has no window of its
+	// own to switch to.
+	Subagents []Subagent
+}
+
+// Subagent is one agent a session spawned. See activity.Subagent.
+type Subagent struct {
+	Type        string
+	Description string
+	Summary     string
+	Working     bool
+	Started     time.Time
+	Modified    time.Time
 }
 
 // Usage is a session's own ledger: what it has cost, how much of its wall
