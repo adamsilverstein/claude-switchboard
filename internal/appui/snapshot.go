@@ -99,6 +99,10 @@ type AgentView struct {
 	CwdShort  string `json:"cwdShort"`
 	Live      bool   `json:"live"`
 
+	// Tool is "codex" for an OpenAI Codex CLI session and empty for a
+	// Claude Code one, which is what almost every row is.
+	Tool string `json:"tool,omitempty"`
+
 	// Status is the word the row shows: "waiting", "busy", "idle",
 	// "shell", "dead", or "" when the registry recorded none.
 	Status string `json:"status"`
@@ -188,6 +192,7 @@ func view(now time.Time, r ui.Row) AgentView {
 		Cwd:            r.Agent.Cwd,
 		CwdShort:       ui.ShortDir(r.Agent.Cwd),
 		Live:           r.Agent.Live,
+		Tool:           tool(r.Agent),
 		Status:         statusWord(r),
 		Age:            ui.FormatAge(now, r.Age),
 		Model:          t.Model,
@@ -218,6 +223,14 @@ func view(now time.Time, r ui.Row) AgentView {
 	v.Subagents, v.SubagentsWorking = subagentViews(now, t.Subagents)
 	v.SubagentsTotal = len(t.Subagents)
 	return v
+}
+
+// tool names the agent's CLI when it is not Claude Code.
+func tool(a registry.Agent) string {
+	if a.Codex() {
+		return registry.EntrypointCodex
+	}
+	return ""
 }
 
 // subagentViews orders a session's subagents the way they are worth

@@ -35,6 +35,16 @@ func displayName(projectsDir string, a registry.Agent, act activity.Activity) st
 	return a.Name
 }
 
+// pickerName marks a Codex session in the terminal front ends, which have
+// no room for a separate column and would otherwise show it as just another
+// Claude Code agent. The app window draws a tag instead.
+func pickerName(name string, a registry.Agent) string {
+	if a.Codex() {
+		return "[codex] " + name
+	}
+	return name
+}
+
 // githubRef matches the GitHub pull request and issue URLs that dominate
 // these prompts.
 var githubRef = regexp.MustCompile(`https?://github\.com/[^/\s]+/[^/\s]+/(pull|issues)/(\d+)\S*`)

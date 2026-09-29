@@ -413,6 +413,18 @@ body.resizing { cursor: col-resize; user-select: none; }
   line-height: 15px;
   color: var(--muted);
 }
+/* Which CLI the session is, shown only when it is not Claude Code. Same
+ * frame as the subagents tag, so the two read as one family of labels. */
+.row .tool {
+  flex: none;
+  padding: 0 5px;
+  border: 1px solid var(--rule-frame);
+  font-family: var(--mono);
+  font-size: 10px;
+  line-height: 15px;
+  color: var(--muted);
+}
+.row[aria-selected="true"] .tool { border-color: var(--on-accent-dim); color: var(--on-accent-dim); }
 .row .agents.working { border-color: var(--busy); color: var(--busy); }
 .row[aria-selected="true"] .agents { border-color: var(--on-accent-dim); color: var(--on-accent-dim); }
 .row[data-live="false"] .agents { display: none; }

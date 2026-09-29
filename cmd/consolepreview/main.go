@@ -174,10 +174,18 @@ func fixture(n int, bare bool) []ui.Row {
 		if t.Waiting {
 			status = "idle"
 		}
+		// One agent is a Codex session, which carries a tag and no
+		// statusline-only telemetry.
+		entrypoint := "cli"
+		if i == 3 {
+			entrypoint = registry.EntrypointCodex
+			t.Model, t.ContextWindow, t.ContextTokens = "GPT-6-Astra", 258400, 29900
+			t.Usage, t.PermissionMode = nil, ""
+		}
 		rows = append(rows, ui.Row{
 			Agent: registry.Agent{
 				PID: 48200 + i, SessionID: fmt.Sprintf("s%d", i), Status: status,
-				Cwd: "/Users/x/repositories/" + repo, Live: i != 4, Entrypoint: "cli",
+				Cwd: "/Users/x/repositories/" + repo, Live: i != 4, Entrypoint: entrypoint,
 			},
 			Name:      names[i%len(names)],
 			Summary:   summaries[i%len(summaries)],
