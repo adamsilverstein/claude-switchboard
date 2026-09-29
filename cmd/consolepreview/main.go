@@ -174,10 +174,18 @@ func fixture(n int, bare bool) []ui.Row {
 		if t.Waiting {
 			status = "idle"
 		}
+		// One agent is a Codex session, which carries a tag and no
+		// statusline-only telemetry.
+		entrypoint := "cli"
+		if i == 3 {
+			entrypoint = registry.EntrypointCodex
+			t.Model, t.ContextWindow, t.ContextTokens = "GPT-6-Astra", 258400, 29900
+			t.Usage, t.PermissionMode = nil, ""
+		}
 		rows = append(rows, ui.Row{
 			Agent: registry.Agent{
 				PID: 48200 + i, SessionID: fmt.Sprintf("s%d", i), Status: status,
-				Cwd: "/Users/x/repositories/" + repo, Live: i != 4, Entrypoint: "cli",
+				Cwd: "/Users/x/repositories/" + repo, Live: i != 4, Entrypoint: entrypoint,
 			},
 			Name:      names[i%len(names)],
 			Summary:   summaries[i%len(summaries)],
@@ -222,11 +230,19 @@ var subagentSaid = []string{
 // account is what the statusline shim would have recorded, or nothing at all
 // on a machine where it is not installed.
 func account(bare bool) appui.Account {
+	// The Codex windows come from Codex's own rollouts, not the shim, so
+	// a bare machine still has them.
+	codex5h, codex7d := 63, 37
+	withCodex := func(a appui.Account) appui.Account {
+		a.Codex5hPct, a.Codex5hResetsIn = &codex5h, "2h 04m"
+		a.Codex7dPct, a.Codex7dResetsIn = &codex7d, "5d 0h"
+		return a
+	}
 	if bare {
-		return appui.Account{}
+		return withCodex(appui.Account{})
 	}
 	five, seven, spend := 31, 12, 68
-	return appui.Account{
+	return withCodex(appui.Account{
 		Shim:          true,
 		Usage5hPct:    &five,
 		Usage7dPct:    &seven,
@@ -235,7 +251,7 @@ func account(bare bool) appui.Account {
 		Usage5hResetsIn:    "3h 12m",
 		Usage7dResetsIn:    "4d 14h",
 		UsageSpendResetsIn: "4d 14h",
-	}
+	})
 }
 
 // cache is the prompt cache for one fixture row, cycling through the three

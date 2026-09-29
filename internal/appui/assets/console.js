@@ -421,6 +421,11 @@ function renderSidebar(s) {
   $("usage").hidden = !drawn;
   $("usagehint").hidden = acct.shim;
 
+  $("codexusage").hidden = ![
+    meter("codex5h", acct.codex5hPct, resetNote(acct.codex5hResetsIn)),
+    meter("codex7d", acct.codex7dPct, resetNote(acct.codex7dResetsIn)),
+  ].some(Boolean);
+
   const age = s.polledAt ? Math.max(0, Math.round((Date.now() - Date.parse(s.polledAt)) / 1000)) : null;
   $("polled").textContent = age === null ? "" : "polled " + age + "s ago";
 }
@@ -583,6 +588,8 @@ function rowEl(a, cur, s) {
   const nameCell = el("span", "name-cell");
   const nameLine = el("span", "name-line");
   nameLine.append(line("name ellipsis", a.name));
+  const tool = toolTag(a);
+  if (tool) nameLine.append(tool);
   const agentsTag = subagentsTag(a);
   if (agentsTag) nameLine.append(agentsTag);
   nameCell.append(nameLine);
@@ -721,6 +728,7 @@ function reportCapacity() {
 
 function stripLine(a) {
   return [
+    a.tool === "codex" ? "Codex" : "",
     a.model,
     a.contextPct === null || a.contextPct === undefined ? "" : "ctx " + a.contextPct + "%",
     a.usage ? a.usage.cost : "",
@@ -808,6 +816,15 @@ function subagentsLabel(a) {
   if (!a.subagentsTotal) return "";
   const n = a.subagentsTotal + (a.subagentsTotal === 1 ? " agent" : " agents");
   return a.subagentsWorking ? n + " · " + a.subagentsWorking + " working" : n;
+}
+
+// A Codex session lists alongside the Claude Code ones and acts the same -
+// focus, stop, readout - so the only thing that sets it apart is this tag.
+function toolTag(a) {
+  if (a.tool !== "codex") return null;
+  const t = el("span", "tool", "codex");
+  t.title = "OpenAI Codex CLI session";
+  return t;
 }
 
 // The row's tag says a session has fanned out without taking a line of

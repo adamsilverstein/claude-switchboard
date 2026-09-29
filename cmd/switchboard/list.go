@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/adamsilverstein/claude-switchboard/internal/activity"
+	"github.com/adamsilverstein/claude-switchboard/internal/appui"
+	"github.com/adamsilverstein/claude-switchboard/internal/codex"
 	"github.com/adamsilverstein/claude-switchboard/internal/locate"
 	"github.com/adamsilverstein/claude-switchboard/internal/registry"
 	"github.com/adamsilverstein/claude-switchboard/internal/target"
@@ -20,10 +22,18 @@ func scanAgents() ([]registry.Agent, error) {
 	return agents, err
 }
 
+// codexScanner lives for the whole process so the rollout heads and working
+// directories it caches carry across polls.
+var codexScanner = codex.NewScanner()
+
 // scanAgentsWithProcs is scanAgents plus what ps reported, for callers that
 // want the controlling terminals too. The tty comes free from the call
 // liveness already makes; asking for it separately would mean a second
 // registry read and a second ps every poll.
+//
+// Codex sessions are merged in here, so every front end lists them without
+// knowing they came from somewhere else. They arrive already live: they are
+// found by their process, so there is no stale entry to check.
 func scanAgentsWithProcs() ([]registry.Agent, map[int]locate.Proc, error) {
 	dir, err := registry.DefaultDir()
 	if err != nil {
@@ -46,7 +56,12 @@ func scanAgentsWithProcs() ([]registry.Agent, map[int]locate.Proc, error) {
 		starts[pid] = p.Start
 	}
 	registry.CheckLiveness(agents, starts)
-	return agents, procs, nil
+
+	codexAgents, codexTTYs := codexScanner.Scan()
+	for _, a := range codexAgents {
+		procs[a.PID] = locate.Proc{TTY: codexTTYs[a.PID], Start: a.ProcStart}
+	}
+	return append(agents, codexAgents...), procs, nil
 }
 
 // ttysOf reduces a ps snapshot to the controlling terminal of each pid,
@@ -166,7 +181,7 @@ func runList(args []string) error {
 			status = "dead"
 		}
 		age := statusTime(a)
-		act := activity.For(projectsDir, a.Cwd, a.SessionID)
+		act := appui.ActivityOf(projectsDir, a)
 		if age.IsZero() {
 			age = act.Modified
 		}
@@ -176,7 +191,7 @@ func runList(args []string) error {
 		}
 		fmt.Fprintf(w, "%d\t%s\t%s\t%s\t%s%s\n",
 			a.PID, status, ui.FormatAge(now, age), ui.ShortDir(a.Cwd),
-			displayName(projectsDir, a, act), row)
+			pickerName(displayName(projectsDir, a, act), a), row)
 	}
 	return w.Flush()
 }

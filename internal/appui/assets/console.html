@@ -51,6 +51,26 @@
       </div>
     </div>
 
+    <!-- The OpenAI account's windows, the two Codex's own /status draws.
+         A separate panel, not two more meters in the one above: they are a
+         different account's quota, and stacking them together would read
+         as one budget. Hidden on a machine with no Codex reading. -->
+    <div id="codexusage" hidden>
+      <div class="meter" id="codex5h" hidden>
+        <span class="label">Codex &middot; 5 hours</span>
+        <div class="big"><b id="codex5hPct"></b><span>of window</span></div>
+        <div class="bar" id="codex5hBar"><i></i><u></u></div>
+        <span class="note" id="codex5hNote"></span>
+      </div>
+
+      <div class="meter" id="codex7d" hidden>
+        <span class="label">Codex &middot; week</span>
+        <div class="big"><b id="codex7dPct"></b><span>of window</span></div>
+        <div class="bar" id="codex7dBar"><i></i><u></u></div>
+        <span class="note" id="codex7dNote"></span>
+      </div>
+    </div>
+
     <!-- Shown in place of the meters when no session on this machine has
          the shim installed. An empty corner where the numbers should be
          reads as a bug; naming the one command that fixes it does not. -->

@@ -6,6 +6,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/adamsilverstein/claude-switchboard/internal/activity"
+	"github.com/adamsilverstein/claude-switchboard/internal/appui"
 	"github.com/adamsilverstein/claude-switchboard/internal/target"
 	"github.com/adamsilverstein/claude-switchboard/internal/ui"
 )
@@ -27,14 +28,14 @@ func runUI() error {
 		agents = onScreen(target.ExecRunner{}, windows, agents, ttysOf(procs))
 		rows := make([]ui.Row, 0, len(agents))
 		for _, a := range agents {
-			act := activity.For(projectsDir, a.Cwd, a.SessionID)
+			act := appui.ActivityOf(projectsDir, a)
 			age := statusTime(a)
 			if age.IsZero() {
 				age = act.Modified
 			}
 			rows = append(rows, ui.Row{
 				Agent:   a,
-				Name:    displayName(projectsDir, a, act),
+				Name:    pickerName(displayName(projectsDir, a, act), a),
 				Summary: act.Summary,
 				Age:     age,
 			})

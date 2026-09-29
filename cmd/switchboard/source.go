@@ -83,9 +83,10 @@ func newAppSource() (*appSource, error) {
 	}, nil
 }
 
-// account is the machine-wide usage the statusline shim recorded, if any.
+// account is the machine-wide usage the statusline shim recorded, if any,
+// and the Codex account's windows from its rollouts.
 func (s *appSource) account(now time.Time) appui.Account {
-	return appui.AccountUsage(s.statuslineDir, now)
+	return appui.AccountUsage(s.statuslineDir, now).WithCodex(codexScanner.Limits(now), now)
 }
 
 // rows scans the registry and enriches what it finds.

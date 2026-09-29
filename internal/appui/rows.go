@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/adamsilverstein/claude-switchboard/internal/activity"
+	"github.com/adamsilverstein/claude-switchboard/internal/codex"
 	"github.com/adamsilverstein/claude-switchboard/internal/forge"
 	"github.com/adamsilverstein/claude-switchboard/internal/git"
 	"github.com/adamsilverstein/claude-switchboard/internal/registry"
@@ -30,17 +31,39 @@ type Builder struct {
 func (b Builder) Rows(agents []registry.Agent, ttys map[int]string, name func(registry.Agent, activity.Activity) string) []ui.Row {
 	rows := make([]ui.Row, 0, len(agents))
 	for _, a := range agents {
-		act := activity.For(b.ProjectsDir, a.Cwd, a.SessionID)
+		act, window := activityOf(b.ProjectsDir, a)
 		age := agentAge(a, act)
+		t := b.telemetry(a, act, ttys[a.PID])
+		if window > 0 {
+			t.ContextWindow = window
+		}
 		rows = append(rows, ui.Row{
 			Agent:     a,
 			Name:      name(a, act),
 			Summary:   act.Summary,
 			Age:       age,
-			Telemetry: b.telemetry(a, act, ttys[a.PID]),
+			Telemetry: t,
 		})
 	}
 	return rows
+}
+
+// ActivityOf reads an agent's transcript, wherever its tool keeps it.
+func ActivityOf(projectsDir string, a registry.Agent) activity.Activity {
+	act, _ := activityOf(projectsDir, a)
+	return act
+}
+
+// activityOf is ActivityOf plus the context window size, which a Codex
+// rollout records and a Claude Code transcript does not - for Claude Code
+// that comes from the statusline shim, and window is 0.
+func activityOf(projectsDir string, a registry.Agent) (act activity.Activity, window int) {
+	if !a.Codex() {
+		return activity.For(projectsDir, a.Cwd, a.SessionID), 0
+	}
+	tail := codex.ReadTail(a.Transcript)
+	tail.Model = codex.ModelDisplayName(tail.Model)
+	return tail.Activity, tail.ContextWindow
 }
 
 // agentAge picks the freshest timestamp that describes the agent, in the
@@ -91,6 +114,11 @@ func (b Builder) telemetry(a registry.Agent, act activity.Activity, tty string) 
 	// answers from memory and refreshes behind us.
 	if b.Forge != nil {
 		t.Ref = b.Forge.Ref(a.Cwd, t.Branch)
+	}
+	// Everything past here is Claude Code's: the statusline shim is a
+	// Claude Code hook, and subagents are read from its transcripts.
+	if a.Codex() {
+		return t
 	}
 	// The shim, when installed, knows things the transcript cannot: the
 	// display name Claude Code itself uses, and - the load-bearing one -
@@ -169,6 +197,26 @@ func AccountUsage(statuslineDir string, now time.Time) Account {
 	acct.Usage7dPct, acct.Usage7dResetsIn = meter(w.SevenDay, now)
 	acct.UsageSpendPct, acct.UsageSpendResetsIn = meter(w.SpendLimit, now)
 	return acct
+}
+
+// WithCodex adds the Codex account's windows, formatted the way the Claude
+// ones are so the two panels read alike.
+func (a Account) WithCodex(l codex.Limits, now time.Time) Account {
+	a.Codex5hPct, a.Codex5hResetsIn = codexMeter(l.FiveHour, now)
+	a.Codex7dPct, a.Codex7dResetsIn = codexMeter(l.Weekly, now)
+	return a
+}
+
+func codexMeter(l *codex.Limit, now time.Time) (*int, string) {
+	if l == nil {
+		return nil, ""
+	}
+	pct := int(l.UsedPct + 0.5)
+	var in string
+	if !l.Resets.IsZero() {
+		in = FormatDuration(l.Resets.Sub(now))
+	}
+	return &pct, in
 }
 
 // meter formats one rate-limit window. A nil percentage is the signal that

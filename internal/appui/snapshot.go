@@ -81,6 +81,14 @@ type Account struct {
 	// none of your quota" and "nothing here can see your quota", and the
 	// page prints an install hint rather than a set of empty meters.
 	Shim bool `json:"shim"`
+
+	// Codex5h and Codex7d are the OpenAI account's windows, the same two
+	// Codex's /status draws, read from its rollouts. Nil when this machine
+	// has no Codex reading, and the page drops the Codex panel.
+	Codex5hPct      *int   `json:"codex5hPct"`
+	Codex5hResetsIn string `json:"codex5hResetsIn,omitempty"`
+	Codex7dPct      *int   `json:"codex7dPct"`
+	Codex7dResetsIn string `json:"codex7dResetsIn,omitempty"`
 }
 
 // AgentView is one row, formatted. Numbers arrive as strings that are ready
@@ -98,6 +106,10 @@ type AgentView struct {
 	Cwd       string `json:"cwd"`
 	CwdShort  string `json:"cwdShort"`
 	Live      bool   `json:"live"`
+
+	// Tool is "codex" for an OpenAI Codex CLI session and empty for a
+	// Claude Code one, which is what almost every row is.
+	Tool string `json:"tool,omitempty"`
 
 	// Status is the word the row shows: "waiting", "busy", "idle",
 	// "shell", "dead", or "" when the registry recorded none.
@@ -188,6 +200,7 @@ func view(now time.Time, r ui.Row) AgentView {
 		Cwd:            r.Agent.Cwd,
 		CwdShort:       ui.ShortDir(r.Agent.Cwd),
 		Live:           r.Agent.Live,
+		Tool:           tool(r.Agent),
 		Status:         statusWord(r),
 		Age:            ui.FormatAge(now, r.Age),
 		Model:          t.Model,
@@ -218,6 +231,14 @@ func view(now time.Time, r ui.Row) AgentView {
 	v.Subagents, v.SubagentsWorking = subagentViews(now, t.Subagents)
 	v.SubagentsTotal = len(t.Subagents)
 	return v
+}
+
+// tool names the agent's CLI when it is not Claude Code.
+func tool(a registry.Agent) string {
+	if a.Codex() {
+		return registry.EntrypointCodex
+	}
+	return ""
 }
 
 // subagentViews orders a session's subagents the way they are worth

@@ -39,6 +39,21 @@ type Agent struct {
 
 	// File is the registry file this agent was read from.
 	File string
+
+	// Transcript is the session's transcript when it is not where Claude
+	// Code keeps its own, which is the case for a Codex session and its
+	// rollout under ~/.codex/sessions. Empty for a Claude Code session.
+	Transcript string
+}
+
+// EntrypointCodex marks an agent that is an OpenAI Codex CLI session rather
+// than a Claude Code one. Codex keeps no registry of its own; the codex
+// package builds these entries from the process table and its rollouts.
+const EntrypointCodex = "codex"
+
+// Codex reports whether the agent is a Codex CLI session.
+func (a Agent) Codex() bool {
+	return a.Entrypoint == EntrypointCodex
 }
 
 // NameIsDerived reports whether the agent's name was auto-generated from its
