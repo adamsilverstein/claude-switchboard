@@ -812,10 +812,13 @@ function usageCell(a) {
 // Subagents are shown and never selected. They have no terminal of their
 // own, so there is nothing for the cursor, Enter or Stop to act on - which
 // is why none of this is a row, and why nothing here takes keyboard focus.
+// Once every subagent has finished the count reads as done, the way the
+// readout's fold does, so a bare "13 agents" never looks like 13 still running.
 function subagentsLabel(a) {
   if (!a.subagentsTotal) return "";
+  if (!a.subagentsWorking) return "✓ " + a.subagentsTotal + " done";
   const n = a.subagentsTotal + (a.subagentsTotal === 1 ? " agent" : " agents");
-  return a.subagentsWorking ? n + " · " + a.subagentsWorking + " working" : n;
+  return n + " · " + a.subagentsWorking + " working";
 }
 
 // A Codex session lists alongside the Claude Code ones and acts the same -
@@ -832,7 +835,7 @@ function toolTag(a) {
 function subagentsTag(a) {
   if (!a.subagentsTotal) return null;
   const t = el("span", a.subagentsWorking ? "agents working" : "agents", subagentsLabel(a));
-  t.title = "Subagents this session spawned";
+  t.title = a.subagentsWorking ? "Subagents this session spawned" : "Subagents this session spawned, all finished";
   return t;
 }
 
