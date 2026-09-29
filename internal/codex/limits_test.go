@@ -41,14 +41,14 @@ func TestLimitsTakesNewestReadingAcrossRollouts(t *testing.T) {
 	}
 }
 
-func TestLimitsAfterResetReadZero(t *testing.T) {
+func TestLimitsAfterResetAreUnknown(t *testing.T) {
 	home := t.TempDir()
 	now := time.Date(2026, time.September, 29, 12, 0, 0, 0, time.UTC)
 	write(t, filepath.Join(home, "sessions", "a.jsonl"),
 		limitsLine("2026-09-29T06:00:00Z", 88, now.Add(-time.Minute).Unix(), 40, now.Add(time.Hour).Unix()))
 	l := newScanner(home, nil, nil).Limits(now)
-	if l.FiveHour == nil || l.FiveHour.UsedPct != 0 || !l.FiveHour.Resets.IsZero() {
-		t.Errorf("a window past its reset should read zero, got %+v", l.FiveHour)
+	if l.FiveHour != nil {
+		t.Errorf("a window past its reset is unknown, not zero; got %+v", l.FiveHour)
 	}
 	if l.Weekly == nil || l.Weekly.UsedPct != 40 {
 		t.Errorf("Weekly = %+v", l.Weekly)
@@ -70,3 +70,39 @@ func touch(t *testing.T, path string, at time.Time) {
 
 func ftoa(f float64) string { return strconv.FormatFloat(f, 'f', -1, 64) }
 func itoa(n int64) string   { return strconv.FormatInt(n, 10) }
+
+func TestLimitsIgnoreOtherQuotasAndLooseLengths(t *testing.T) {
+	home := t.TempDir()
+	now := time.Date(2026, time.September, 29, 12, 0, 0, 0, time.UTC)
+	resets := itoa(now.Add(time.Hour).Unix())
+	body := line("2026-09-29T11:00:00Z", "event_msg", `{"type":"token_count","rate_limits":{"limit_id":"codex",`+
+		`"primary":{"used_percent":20,"window_minutes":299,"resets_at":`+resets+`},`+
+		`"secondary":{"used_percent":30,"window_minutes":10079,"resets_at":`+resets+`}}}`) +
+		// A newer, model-specific quota must not replace the account's.
+		line("2026-09-29T11:05:00Z", "event_msg", `{"type":"token_count","rate_limits":{"limit_id":"codex_other",`+
+			`"primary":{"used_percent":99,"window_minutes":300,"resets_at":`+resets+`}}}`)
+	write(t, filepath.Join(home, "sessions", "a.jsonl"), body)
+	l := newScanner(home, nil, nil).Limits(now)
+	if l.FiveHour == nil || l.FiveHour.UsedPct != 20 {
+		t.Errorf("FiveHour = %+v, want 20", l.FiveHour)
+	}
+	if l.Weekly == nil || l.Weekly.UsedPct != 30 {
+		t.Errorf("Weekly = %+v, want 30", l.Weekly)
+	}
+}
+
+func TestLimitsLookPastManyRolloutsWithoutReadings(t *testing.T) {
+	home := t.TempDir()
+	now := time.Date(2026, time.September, 29, 12, 0, 0, 0, time.UTC)
+	old := filepath.Join(home, "sessions", "old.jsonl")
+	write(t, old, limitsLine("2026-09-29T09:00:00Z", 44, now.Add(time.Hour).Unix(), 10, now.Add(time.Hour).Unix()))
+	touch(t, old, now.Add(-3*time.Hour))
+	for i := 0; i < 20; i++ {
+		p := filepath.Join(home, "sessions", "fresh"+itoa(int64(i))+".jsonl")
+		write(t, p, meta("f", "/r", "2026-09-29T11:00:00Z", `"cli"`, "codex-tui"))
+		touch(t, p, now.Add(-time.Duration(i)*time.Minute))
+	}
+	if l := newScanner(home, nil, nil).Limits(now); l.FiveHour == nil || l.FiveHour.UsedPct != 44 {
+		t.Errorf("FiveHour = %+v, want the reading behind twenty empty rollouts", l.FiveHour)
+	}
+}

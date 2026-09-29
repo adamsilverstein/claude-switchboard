@@ -230,17 +230,19 @@ var subagentSaid = []string{
 // account is what the statusline shim would have recorded, or nothing at all
 // on a machine where it is not installed.
 func account(bare bool) appui.Account {
+	// The Codex windows come from Codex's own rollouts, not the shim, so
+	// a bare machine still has them.
+	codex5h, codex7d := 63, 37
+	withCodex := func(a appui.Account) appui.Account {
+		a.Codex5hPct, a.Codex5hResetsIn = &codex5h, "2h 04m"
+		a.Codex7dPct, a.Codex7dResetsIn = &codex7d, "5d 0h"
+		return a
+	}
 	if bare {
-		return appui.Account{}
+		return withCodex(appui.Account{})
 	}
 	five, seven, spend := 31, 12, 68
-	codex5h, codex7d := 63, 37
-	return appui.Account{
-		Codex5hPct:      &codex5h,
-		Codex7dPct:      &codex7d,
-		Codex5hResetsIn: "2h 04m",
-		Codex7dResetsIn: "5d 0h",
-
+	return withCodex(appui.Account{
 		Shim:          true,
 		Usage5hPct:    &five,
 		Usage7dPct:    &seven,
@@ -249,7 +251,7 @@ func account(bare bool) appui.Account {
 		Usage5hResetsIn:    "3h 12m",
 		Usage7dResetsIn:    "4d 14h",
 		UsageSpendResetsIn: "4d 14h",
-	}
+	})
 }
 
 // cache is the prompt cache for one fixture row, cycling through the three

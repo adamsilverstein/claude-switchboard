@@ -30,11 +30,16 @@ func (l Limits) Any() bool {
 	return l.FiveHour != nil || l.Weekly != nil
 }
 
-// maxLimitFiles bounds how many of the most recent rollouts are searched
-// for a reading. A session that has just started has made no request yet,
-// so the newest file can be empty of one; one a few files back never is
-// unless Codex stopped reporting limits altogether.
-const maxLimitFiles = 8
+// maxLimitFiles bounds how many rollouts are searched, newest first, for a
+// reading. It is a cost bound, not an expectation: a run of fresh sessions
+// that have made no request yet, or of codex exec runs that report no
+// limits, can push the newest reading well down the list.
+const maxLimitFiles = 64
+
+// accountLimitID is the quota the sidebar draws. Codex can report other,
+// model-specific quotas alongside it under their own ids; those are not the
+// account's 5-hour and weekly windows and must not stand in for them.
+const accountLimitID = "codex"
 
 // rateWindow is one window inside a token_count event's rate_limits.
 type rateWindow struct {
@@ -50,6 +55,7 @@ type limitEntry struct {
 	Payload   struct {
 		Type       string `json:"type"`
 		RateLimits *struct {
+			LimitID   string      `json:"limit_id"`
 			Primary   *rateWindow `json:"primary"`
 			Secondary *rateWindow `json:"secondary"`
 		} `json:"rate_limits"`
@@ -62,9 +68,10 @@ type limitEntry struct {
 // terminal session, the desktop app, or a subagent, since they share one
 // account - is the freshest reading there is.
 //
-// A window whose reset time has passed is reported at zero. That is not a
-// guess: any request since the reset would have written a newer reading,
-// and there is none.
+// A window whose reset time has passed is left out. The reading predates
+// the reset, and a request from another machine on the same account may
+// have spent some of the new window without this one hearing about it, so
+// neither the old number nor zero would be the truth.
 func (s *Scanner) Limits(now time.Time) Limits {
 	type file struct {
 		path string
@@ -108,20 +115,27 @@ func (s *Scanner) Limits(now time.Time) Limits {
 		if w.ResetsAt > 0 {
 			lim.Resets = time.Unix(w.ResetsAt, 0)
 			if !lim.Resets.After(now) {
-				lim.UsedPct, lim.Resets = 0, time.Time{}
+				continue
 			}
 		}
 		// Which window is which is read from its length, not its
 		// position: primary and secondary are Codex's words, and 5h and
-		// weekly are what the reader means.
+		// weekly are what the reader means. The length is matched
+		// loosely because Codex has been seen recording 299 and 10079.
 		switch {
-		case w.WindowMinutes == 300:
+		case near(w.WindowMinutes, 5*60):
 			l.FiveHour = lim
-		case w.WindowMinutes == 7*24*60:
+		case near(w.WindowMinutes, 7*24*60):
 			l.Weekly = lim
 		}
 	}
 	return l
+}
+
+// near reports whether a window length is within a few minutes of want.
+func near(minutes, want int) bool {
+	d := minutes - want
+	return d >= -5 && d <= 5
 }
 
 // lastLimits finds the last token_count in a rollout's tail that carries
@@ -155,7 +169,13 @@ func lastLimits(path string) (limitEntry, bool) {
 		if json.Unmarshal(lines[i], &e) != nil || e.Type != "event_msg" || e.Payload.Type != "token_count" {
 			continue
 		}
-		if rl := e.Payload.RateLimits; rl != nil && (rl.Primary != nil || rl.Secondary != nil) {
+		// A snapshot with no id predates Codex naming its quotas, and
+		// then the account's was the only one there was.
+		rl := e.Payload.RateLimits
+		if rl == nil || (rl.LimitID != "" && rl.LimitID != accountLimitID) {
+			continue
+		}
+		if rl.Primary != nil || rl.Secondary != nil {
 			return e, true
 		}
 	}
