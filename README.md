@@ -124,7 +124,8 @@ Known gaps:
 - Codex does not write approval prompts to its rollout, so a session
   waiting on an approval shows as busy rather than waiting.
 - A Codex session inside tmux is not yet joined to its pane.
-- Account usage and the statusline readouts are Claude Code only.
+- The Codex account's 5-hour and weekly limits get their own panel in the
+  app window's sidebar; the statusline readouts are Claude Code only.
 
 ## Use
 
