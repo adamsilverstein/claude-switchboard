@@ -109,6 +109,23 @@ you press `enter` on a row, macOS asks for permission to control iTerm2.
 Allow it once - the answer is later editable under System Settings ->
 Privacy & Security -> Automation.
 
+### Codex sessions
+
+OpenAI Codex CLI sessions running in a terminal are listed too, marked
+`[codex]` in the terminal picker and with a `codex` tag in the app window.
+Codex keeps no live-session registry, so each one is found by its `codex`
+process and joined to its rollout transcript under `~/.codex/sessions`
+(or `$CODEX_HOME/sessions`). That transcript supplies the status, the
+last thing Codex said, the model, and the context window. Focus and stop
+work the same as for Claude Code.
+
+Known gaps:
+
+- Codex does not write approval prompts to its rollout, so a session
+  waiting on an approval shows as busy rather than waiting.
+- A Codex session inside tmux is not yet joined to its pane.
+- Account usage and the statusline readouts are Claude Code only.
+
 ## Use
 
 ```sh
