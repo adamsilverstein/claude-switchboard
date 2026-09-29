@@ -234,7 +234,13 @@ func account(bare bool) appui.Account {
 		return appui.Account{}
 	}
 	five, seven, spend := 31, 12, 68
+	codex5h, codex7d := 63, 37
 	return appui.Account{
+		Codex5hPct:      &codex5h,
+		Codex7dPct:      &codex7d,
+		Codex5hResetsIn: "2h 04m",
+		Codex7dResetsIn: "5d 0h",
+
 		Shim:          true,
 		Usage5hPct:    &five,
 		Usage7dPct:    &seven,

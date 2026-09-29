@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/adamsilverstein/claude-switchboard/internal/activity"
+	"github.com/adamsilverstein/claude-switchboard/internal/codex"
 	"github.com/adamsilverstein/claude-switchboard/internal/registry"
 	"github.com/adamsilverstein/claude-switchboard/internal/ui"
 )
@@ -280,5 +281,22 @@ func TestEveryAccountWindowHasAMeterOnThePage(t *testing.T) {
 		if !strings.Contains(page, part) {
 			t.Errorf("the install hint does not name %q, the command that fixes it", part)
 		}
+	}
+}
+
+func TestWithCodexFormatsWindows(t *testing.T) {
+	now := time.Date(2026, time.September, 29, 12, 0, 0, 0, time.UTC)
+	acct := Account{}.WithCodex(codex.Limits{
+		FiveHour: &codex.Limit{UsedPct: 62.6, Resets: now.Add(2*time.Hour + 4*time.Minute)},
+		Weekly:   &codex.Limit{UsedPct: 37},
+	}, now)
+	if acct.Codex5hPct == nil || *acct.Codex5hPct != 63 || acct.Codex5hResetsIn != "2h 04m" {
+		t.Errorf("5h = %v %q", acct.Codex5hPct, acct.Codex5hResetsIn)
+	}
+	if acct.Codex7dPct == nil || *acct.Codex7dPct != 37 || acct.Codex7dResetsIn != "" {
+		t.Errorf("7d = %v %q", acct.Codex7dPct, acct.Codex7dResetsIn)
+	}
+	if none := (Account{}).WithCodex(codex.Limits{}, now); none.Codex5hPct != nil || none.Codex7dPct != nil {
+		t.Error("no reading should leave both windows nil")
 	}
 }

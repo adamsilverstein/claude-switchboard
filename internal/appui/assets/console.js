@@ -421,6 +421,11 @@ function renderSidebar(s) {
   $("usage").hidden = !drawn;
   $("usagehint").hidden = acct.shim;
 
+  $("codexusage").hidden = ![
+    meter("codex5h", acct.codex5hPct, resetNote(acct.codex5hResetsIn)),
+    meter("codex7d", acct.codex7dPct, resetNote(acct.codex7dResetsIn)),
+  ].some(Boolean);
+
   const age = s.polledAt ? Math.max(0, Math.round((Date.now() - Date.parse(s.polledAt)) / 1000)) : null;
   $("polled").textContent = age === null ? "" : "polled " + age + "s ago";
 }

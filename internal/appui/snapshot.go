@@ -81,6 +81,14 @@ type Account struct {
 	// none of your quota" and "nothing here can see your quota", and the
 	// page prints an install hint rather than a set of empty meters.
 	Shim bool `json:"shim"`
+
+	// Codex5h and Codex7d are the OpenAI account's windows, the same two
+	// Codex's /status draws, read from its rollouts. Nil when this machine
+	// has no Codex reading, and the page drops the Codex panel.
+	Codex5hPct      *int   `json:"codex5hPct"`
+	Codex5hResetsIn string `json:"codex5hResetsIn,omitempty"`
+	Codex7dPct      *int   `json:"codex7dPct"`
+	Codex7dResetsIn string `json:"codex7dResetsIn,omitempty"`
 }
 
 // AgentView is one row, formatted. Numbers arrive as strings that are ready

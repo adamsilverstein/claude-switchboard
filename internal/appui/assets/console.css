@@ -207,7 +207,7 @@ html, body {
  * are three readings of the same thing, and three separate frames with the
  * sidebar's 24px between them would claim otherwise - as well as costing
  * enough height to push the list's own controls off a short screen. */
-#usage { display: flex; flex-direction: column; }
+#usage, #codexusage { display: flex; flex-direction: column; }
 .meter { display: flex; flex-direction: column; gap: 9px; padding: 12px; border: 1px solid var(--rule-frame); }
 .meter + .meter { border-top: 0; }
 .meter .big { display: flex; align-items: baseline; gap: 8px; }

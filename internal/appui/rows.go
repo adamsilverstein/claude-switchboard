@@ -199,6 +199,26 @@ func AccountUsage(statuslineDir string, now time.Time) Account {
 	return acct
 }
 
+// WithCodex adds the Codex account's windows, formatted the way the Claude
+// ones are so the two panels read alike.
+func (a Account) WithCodex(l codex.Limits, now time.Time) Account {
+	a.Codex5hPct, a.Codex5hResetsIn = codexMeter(l.FiveHour, now)
+	a.Codex7dPct, a.Codex7dResetsIn = codexMeter(l.Weekly, now)
+	return a
+}
+
+func codexMeter(l *codex.Limit, now time.Time) (*int, string) {
+	if l == nil {
+		return nil, ""
+	}
+	pct := int(l.UsedPct + 0.5)
+	var in string
+	if !l.Resets.IsZero() {
+		in = FormatDuration(l.Resets.Sub(now))
+	}
+	return &pct, in
+}
+
 // meter formats one rate-limit window. A nil percentage is the signal that
 // the window carries no reading and its panel should not be drawn.
 func meter(w *statusline.Window, now time.Time) (*int, string) {
