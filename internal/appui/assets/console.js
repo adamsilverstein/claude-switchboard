@@ -39,15 +39,13 @@ const FLASH_MS = 70;
 const COMFY_ROW_H = 44;
 const COMPACT_ROW_H = 30;
 
-// How much height an expanded readout takes. The stylesheet carries a
-// starting estimate - it knows the readout goes two-by-two below 1200 - and
-// the first expanded render replaces it with the real measurement.
-//
-// Only expanded renders update it, which is what keeps this from feeding
-// back on itself: measuring a collapsed readout would say the readout is
-// small, which would argue for expanding it, which would make it large.
+// How much height an expanded readout takes. The stylesheet carries it - it
+// knows the readout goes two-by-two below 1200 - and it is never measured.
+// The readout's real height depends on the selection (subagents, a long
+// summary), so measuring it would let moving the cursor change the capacity,
+// and with it the density: arrowing through the list would flip every row
+// between comfy and compact.
 function readoutHeight() {
-  if (state.readoutH) return state.readoutH;
   const raw = getComputedStyle(document.documentElement).getPropertyValue("--readout-h");
   return parseInt(raw, 10) || 340;
 }
@@ -59,7 +57,6 @@ const state = {
   queue: null,           // status filtering from the sidebar, or null
   collapsed: new Set([ENDED]),
   capacity: 0,
-  readoutH: 0,      // measured; the stylesheet's estimate until then
   typing: false,
   confirmingStop: null,
   showDoneSubagents: false, // one choice for every session, not per row
@@ -700,7 +697,6 @@ function renderReadout(a) {
 
   $("last").hidden = !a.summary;
   $("last").textContent = a.summary || "";
-  state.readoutH = Math.round($("readout").getBoundingClientRect().height);
 }
 
 // listSpace is the height the list has to work with once the toolbar and an
@@ -1042,9 +1038,8 @@ window.__snapshot = (json) => {
 window.__notice = (text, alert) => notice(text, alert);
 
 window.addEventListener("resize", () => {
-  // A different width can mean a different readout shape, so the
-  // measurement has to be taken again rather than carried across.
-  state.readoutH = 0;
+  // A different width can mean a different readout shape, and the
+  // stylesheet's estimate for it with it.
   reportCapacity();
   // And a different width means a different trim: what did not fit a moment
   // ago may fit now, and the widths you chose are still on record.
