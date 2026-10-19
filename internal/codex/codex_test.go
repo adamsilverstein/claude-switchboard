@@ -150,6 +150,47 @@ func TestReadTailBusyWhenTurnStartIsPastTheWindow(t *testing.T) {
 	}
 }
 
+// A chunk boundary that cuts through a marker line must leave the line
+// whole for the next chunk, and several chunks of output must not hide it.
+func TestLookBackAcrossChunks(t *testing.T) {
+	output := `{"type":"custom_tool_call_output","output":"` + strings.Repeat("y", 4096) + `"}`
+	head := line("2026-09-29T05:26:00Z", "response_item", output)
+	markers := line("2026-09-29T05:26:01Z", "event_msg", started) +
+		line("2026-09-29T05:26:01Z", "turn_context", context)
+	for _, chunks := range []int{1, 3} {
+		for _, cut := range []int{1, 20, len(markers) / 2, len(markers) - 2} {
+			// Pad so the earliest chunk read begins cut bytes into the
+			// markers, with chunks full chunks of output after them.
+			var b strings.Builder
+			b.WriteString(head)
+			b.WriteString(markers)
+			for b.Len() < len(head)+cut+(chunks-1)*tailBytes {
+				b.WriteString(line("2026-09-29T05:26:02Z", "response_item", output))
+			}
+			pad := len(head) + cut + chunks*tailBytes - b.Len() - len(line("2026-09-29T05:26:03Z", "response_item", `{"type":"x","output":""}`))
+			if pad < 0 {
+				t.Fatalf("chunks %d cut %d: padding went negative", chunks, cut)
+			}
+			b.WriteString(line("2026-09-29T05:26:03Z", "response_item", `{"type":"x","output":"`+strings.Repeat("z", pad)+`"}`))
+
+			path := filepath.Join(t.TempDir(), "rollout.jsonl")
+			if err := os.WriteFile(path, []byte(b.String()), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			f, err := os.Open(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var tail Tail
+			lookBack(f, int64(b.Len()), &tail)
+			f.Close()
+			if !tail.Busy || tail.Model != "gpt-6-astra" {
+				t.Errorf("chunks %d cut %d: Busy = %v, Model = %q", chunks, cut, tail.Busy, tail.Model)
+			}
+		}
+	}
+}
+
 func TestReadMetaSkipsSubagentsAndDesktop(t *testing.T) {
 	dir := t.TempDir()
 	cases := []struct {
