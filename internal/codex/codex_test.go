@@ -117,6 +117,39 @@ func TestScanTailIdleAfterCompleteOrAbort(t *testing.T) {
 	}
 }
 
+// A long turn pushes its own start out of the tail window: the turn opens
+// near the top of the file and tool output piles up behind it.
+func TestReadTailBusyWhenTurnStartIsPastTheWindow(t *testing.T) {
+	output := `{"type":"custom_tool_call_output","output":"` + strings.Repeat("y", 4096) + `"}`
+	var b strings.Builder
+	b.WriteString(meta("s1", "/r", "2026-09-29T05:26:00Z", `"cli"`, "codex-tui"))
+	b.WriteString(line("2026-09-29T05:26:01Z", "event_msg", started))
+	b.WriteString(line("2026-09-29T05:26:01Z", "turn_context", context))
+	for b.Len() < 2*tailBytes {
+		b.WriteString(line("2026-09-29T05:26:02Z", "response_item", output))
+	}
+	path := filepath.Join(t.TempDir(), "rollout.jsonl")
+	if err := os.WriteFile(path, []byte(b.String()), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	tail := ReadTail(path)
+	if !tail.Busy {
+		t.Error("a turn whose start is past the tail window should still be busy")
+	}
+	if tail.Model != "gpt-6-astra" {
+		t.Errorf("Model = %q", tail.Model)
+	}
+
+	// Once it completes, the tail alone says so.
+	b.WriteString(line("2026-09-29T05:27:00Z", "event_msg", completed))
+	if err := os.WriteFile(path, []byte(b.String()), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if ReadTail(path).Busy {
+		t.Error("a completed long turn should be idle")
+	}
+}
+
 func TestReadMetaSkipsSubagentsAndDesktop(t *testing.T) {
 	dir := t.TempDir()
 	cases := []struct {
