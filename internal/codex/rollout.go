@@ -131,6 +131,9 @@ type Tail struct {
 	// ContextWindow is how many tokens the model can hold, which Codex
 	// records per turn and Claude Code's transcripts do not.
 	ContextWindow int
+
+	// turnKnown is true once a turn marker has decided Busy.
+	turnKnown bool
 }
 
 // ReadTail reads the end of a rollout. A missing or unreadable file is not
@@ -155,8 +158,83 @@ func ReadTail(path string) Tail {
 		return Tail{}
 	}
 	t := scanTail(buf, offset > 0)
+	if offset > 0 && (!t.turnKnown || t.Model == "") {
+		// A long turn writes its start and its model once, at the top,
+		// then piles tool output behind them until both are out of the
+		// window. Look further back for just those.
+		end := offset
+		if i := bytes.IndexByte(buf, '\n'); i >= 0 {
+			end += int64(i)
+		}
+		lookBack(f, end, &t)
+	}
 	t.Modified = info.ModTime()
 	return t
+}
+
+// turnMarkers are the entry types lookBack wants; a line with none of them
+// is skipped without being decoded.
+var turnMarkers = [][]byte{[]byte(`"turn_context"`), []byte(`"task_started"`), []byte(`"task_complete"`), []byte(`"turn_aborted"`)}
+
+// lookBack reads the file before end, a tail-sized chunk at a time and
+// newest first, until it has found the turn state and model the tail did
+// not have, or reached the top.
+func lookBack(f *os.File, end int64, t *Tail) {
+	for end > 0 && !(t.turnKnown && t.Model != "") {
+		start := max(end-tailBytes, 0)
+		buf := make([]byte, end-start)
+		if _, err := f.ReadAt(buf, start); err != nil {
+			return
+		}
+		next := start
+		if start > 0 {
+			// The first line is cut off; leave it whole for the next
+			// chunk. A line longer than a chunk is a session_meta, not
+			// a marker, and is passed over.
+			if i := bytes.IndexByte(buf, '\n'); i >= 0 {
+				next = start + int64(i)
+				buf = buf[i+1:]
+			}
+		}
+		lines := bytes.Split(buf, []byte("\n"))
+		for i := len(lines) - 1; i >= 0 && !(t.turnKnown && t.Model != ""); i-- {
+			if !hasMarker(lines[i]) {
+				continue
+			}
+			var e entry
+			if json.Unmarshal(bytes.TrimSpace(lines[i]), &e) == nil {
+				t.readTurn(e)
+			}
+		}
+		end = next
+	}
+}
+
+func hasMarker(line []byte) bool {
+	for _, m := range turnMarkers {
+		if bytes.Contains(line, m) {
+			return true
+		}
+	}
+	return false
+}
+
+// readTurn takes the model and the open-or-closed state of the turn from
+// an entry, unless a later entry has already given them.
+func (t *Tail) readTurn(e entry) {
+	switch {
+	case e.Type == "turn_context":
+		if t.Model == "" {
+			t.Model = e.Payload.Model
+		}
+	case e.Type == "event_msg" && !t.turnKnown:
+		switch e.Payload.Type {
+		case "task_started":
+			t.Busy, t.turnKnown = true, true
+		case "task_complete", "turn_aborted":
+			t.turnKnown = true
+		}
+	}
 }
 
 // entry is the subset of a rollout line scanTail reads. Every payload
@@ -190,7 +268,6 @@ func scanTail(buf []byte, truncated bool) Tail {
 		lines = lines[1:]
 	}
 	var t Tail
-	turnKnown := false
 	for i := len(lines) - 1; i >= 0; i-- {
 		line := bytes.TrimSpace(lines[i])
 		if len(line) == 0 {
@@ -204,19 +281,7 @@ func scanTail(buf []byte, truncated bool) Tail {
 			t.Updated = e.Timestamp
 		}
 		p := e.Payload
-		switch {
-		case e.Type == "turn_context":
-			if t.Model == "" {
-				t.Model = p.Model
-			}
-		case e.Type == "event_msg" && !turnKnown:
-			switch p.Type {
-			case "task_started":
-				t.Busy, turnKnown = true, true
-			case "task_complete", "turn_aborted":
-				turnKnown = true
-			}
-		}
+		t.readTurn(e)
 		if e.Type == "event_msg" && p.Type == "token_count" && p.Info != nil && t.ContextTokens == 0 {
 			t.ContextTokens = p.Info.Last.Total
 			t.ContextWindow = p.Info.Window
@@ -235,7 +300,7 @@ func scanTail(buf []byte, truncated bool) Tail {
 				t.Summary = oneLine(strings.Join(parts, " "))
 			}
 		}
-		if turnKnown && t.Model != "" && t.Summary != "" && t.ContextTokens != 0 && t.LastRole != "" {
+		if t.turnKnown && t.Model != "" && t.Summary != "" && t.ContextTokens != 0 && t.LastRole != "" {
 			break
 		}
 	}
