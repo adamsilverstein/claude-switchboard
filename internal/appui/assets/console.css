@@ -209,7 +209,9 @@ html, body {
  * enough height to push the list's own controls off a short screen. */
 #usage, #codexusage { display: flex; flex-direction: column; }
 .meter { display: flex; flex-direction: column; gap: 9px; padding: 12px; border: 1px solid var(--rule-frame); }
-.meter + .meter { border-top: 0; }
+/* Joined to a shown meter above it, not merely the next one: a hidden
+ * first meter would otherwise take the second's top edge with it. */
+.meter:not([hidden]) ~ .meter { border-top: 0; }
 .meter .big { display: flex; align-items: baseline; gap: 8px; }
 .meter .big b { font-family: var(--cond); font-weight: 700; font-size: 30px; line-height: 1; }
 .meter .big span, .meter > .note { font-family: var(--mono); font-size: 10.5px; color: var(--muted); }
