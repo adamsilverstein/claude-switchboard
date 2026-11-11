@@ -70,6 +70,7 @@ func (res *Resolver) Resolve(tmuxField, tty string) Location {
 		Focusable:     true,
 		Commands:      []Command{FocusCommand(s)},
 		CloseCommands: []Command{CloseCommand(s)},
+		TTY:           tty,
 	}
 }
 

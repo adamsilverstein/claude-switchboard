@@ -1,6 +1,7 @@
 package target
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -295,13 +296,45 @@ func TestOnlyAnItermPaneCanBeClosed(t *testing.T) {
 	}
 }
 
-func TestCloseReportsAVanishedSession(t *testing.T) {
+func TestCloseTreatsAVanishedSessionAsClosed(t *testing.T) {
 	res := NewResolver(&fakeRunner{iterm: itermOutput})
 	loc := res.Resolve("", "/dev/ttys008")
-	if err := Close(&fakeRunner{iterm: "not found\n"}, loc); err == nil {
-		t.Error("a session that was already gone should be reported")
+	if loc.TTY != "/dev/ttys008" {
+		t.Errorf("TTY = %q, want /dev/ttys008", loc.TTY)
+	}
+	if err := Close(&fakeRunner{iterm: "not found\n"}, loc); err != nil {
+		t.Errorf("a session that was already gone should count as closed, got %v", err)
 	}
 	if err := Close(&fakeRunner{iterm: "ok\n"}, loc); err != nil {
 		t.Errorf("Close = %v", err)
+	}
+}
+
+func TestTTYQuietOnlyWithAShellLeft(t *testing.T) {
+	cases := []struct {
+		ps   string
+		err  error
+		want bool
+	}{
+		{"/usr/bin/login\n-zsh\n", nil, true},
+		{"/usr/bin/login\n-zsh\nnode\n", nil, false},
+		{"login\n-bash\nsleep\n", nil, false},
+		{"", errors.New("ps failed"), false},
+	}
+	for _, c := range cases {
+		r := &fakeRunner{ps: c.ps, psErr: c.err}
+		got, err := TTYQuiet(r, "/dev/ttys003")
+		if got != c.want {
+			t.Errorf("TTYQuiet(%q) = %v, want %v", c.ps, got, c.want)
+		}
+		if c.err != nil && err == nil {
+			t.Errorf("TTYQuiet(%q) hid the ps error", c.ps)
+		}
+		if len(r.calls) != 1 || r.calls[0] != "ps -t ttys003 -o comm=" {
+			t.Errorf("ran %v", r.calls)
+		}
+	}
+	if _, err := TTYQuiet(&fakeRunner{}, ""); err == nil {
+		t.Error("an unknown terminal cannot be quiet")
 	}
 }

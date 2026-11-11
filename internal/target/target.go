@@ -63,6 +63,12 @@ type Location struct {
 	// a background agent's viewer shows every background job, so
 	// closing either would take other work down with it.
 	CloseCommands []Command
+
+	// TTY is the terminal the session runs on, "/dev/ttys008", when it is
+	// known. A sweep checks it before closing: a pane can be shared, and
+	// anything still running there besides the shell is not ours to hang
+	// up.
+	TTY string
 }
 
 // Focus runs a location's commands in order. The iTerm focus script reports
@@ -86,7 +92,8 @@ func Focus(r Runner, loc Location) error {
 
 // Close runs a location's close commands. Callers stop the agent first and
 // wait for it to exit; closing a session with the agent still in it would
-// hang it up mid-shutdown.
+// hang it up mid-shutdown. A session that is already gone counts as closed,
+// since the point was for it to be gone.
 func Close(r Runner, loc Location) error {
 	if len(loc.CloseCommands) == 0 {
 		return fmt.Errorf("cannot close: not a session of its own")
@@ -97,8 +104,42 @@ func Close(r Runner, loc Location) error {
 			return fmt.Errorf("%s: %w", c.String(), err)
 		}
 		if strings.TrimSpace(out) == "not found" {
-			return fmt.Errorf("session already closed")
+			return nil
 		}
 	}
 	return nil
+}
+
+// TTYQuiet reports whether nothing but a login shell is left on a terminal,
+// which is what makes its session safe to close once an agent has exited.
+// Background jobs, a wrapper that launched the agent, or MCP servers it has
+// not reaped yet all count as something still running.
+func TTYQuiet(r Runner, tty string) (bool, error) {
+	name := strings.TrimPrefix(tty, "/dev/")
+	if name == "" {
+		return false, fmt.Errorf("no terminal to check")
+	}
+	out, err := r.Run("ps", "-t", name, "-o", "comm=")
+	if err != nil {
+		return false, err
+	}
+	for _, line := range strings.Split(out, "\n") {
+		comm := strings.TrimSpace(line)
+		if comm == "" {
+			continue
+		}
+		if i := strings.LastIndex(comm, "/"); i >= 0 {
+			comm = comm[i+1:]
+		}
+		if !quietProcs[strings.TrimPrefix(comm, "-")] {
+			return false, nil
+		}
+	}
+	return true, nil
+}
+
+// quietProcs are what an iTerm session holds when it is sitting at a prompt.
+var quietProcs = map[string]bool{
+	"login": true, "sh": true, "bash": true, "zsh": true, "fish": true,
+	"dash": true, "ksh": true, "tcsh": true, "csh": true, "nu": true,
 }
