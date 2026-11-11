@@ -28,7 +28,7 @@ cask "switchboard" do
   desc "Keyboard-driven picker for live Claude Code agents"
   homepage "https://github.com/adamsilverstein/claude-switchboard"
 
-  depends_on macos: :big_sur
+  depends_on :macos
 
   app "Switchboard.app"
 EOF
