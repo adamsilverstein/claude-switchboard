@@ -32,10 +32,19 @@ type Snapshot struct {
 	Grouped  bool      `json:"grouped"`
 	Compact  bool      `json:"compact"`
 
+	// Density is the choice behind Compact: "compact", "comfy", or ""
+	// when the window decides from how many rows fit. Compact alone cannot
+	// tell the View menu which of the three to tick.
+	Density string `json:"density"`
+
 	// Columns are the header widths dragged in a previous session, so a
 	// relaunch opens to the table you shaped rather than to the default
 	// one. A column left at zero keeps the stylesheet's own width.
 	Columns Columns `json:"columns"`
+
+	// Hidden are the columns taken out of the table by choice, as opposed
+	// to the ones AnyContext and AnyRef drop for having nothing to show.
+	Hidden Hidden `json:"hidden"`
 
 	// Error is a scan failure, shown in place of the list. An empty
 	// string means the scan succeeded, including when it found nothing.

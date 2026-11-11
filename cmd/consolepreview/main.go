@@ -49,6 +49,7 @@ func main() {
 			Value  string        `json:"value"`
 			Rows   int           `json:"rows"`
 			Widths appui.Columns `json:"widths"`
+			Col    string        `json:"col"`
 		}
 		_ = json.NewDecoder(r.Body).Decode(&m)
 		switch m.Cmd {
@@ -64,6 +65,8 @@ func main() {
 			c.SetCapacity(m.Rows)
 		case "columns":
 			c.SetColumns(m.Widths)
+		case "hide":
+			c.SetHidden(m.Col, m.On)
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(c.Snapshot(time.Now()))

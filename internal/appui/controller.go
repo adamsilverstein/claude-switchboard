@@ -55,6 +55,10 @@ type Prefs struct {
 	// reason the sort is.
 	Columns Columns `json:"columns"`
 
+	// Hidden are the columns you have taken out of the table from the
+	// header's context menu or the View menu.
+	Hidden Hidden `json:"hidden"`
+
 	// filter is deliberately not persisted: reopening the window to a
 	// list that silently hides most of your agents is a bad surprise.
 	filter string
@@ -79,6 +83,36 @@ type Columns struct {
 	Context int `json:"context,omitempty"`
 	Repo    int `json:"repo,omitempty"`
 	Ref     int `json:"ref,omitempty"`
+}
+
+// Hidden says which columns you have taken out of the table. A struct of
+// bools rather than a list for the same reason Columns is one: Prefs has to
+// stay comparable.
+//
+// STATUS and NAME are absent on purpose. NAME is the thing the list is
+// scanned for, and STATUS is the word that keeps status from being carried
+// by colour alone in the flat view. Neither can be hidden, so neither can be
+// hidden by accident.
+type Hidden struct {
+	Age     bool `json:"age,omitempty"`
+	Context bool `json:"context,omitempty"`
+	Repo    bool `json:"repo,omitempty"`
+	Ref     bool `json:"ref,omitempty"`
+	Summary bool `json:"summary,omitempty"`
+}
+
+// set flips one column by its [data-col] name, and reports whether the name
+// is one that can be hidden at all.
+func (h *Hidden) set(col string, hide bool) bool {
+	f := map[string]*bool{
+		"age": &h.Age, "context": &h.Context, "repo": &h.Repo,
+		"ref": &h.Ref, "summary": &h.Summary,
+	}[col]
+	if f == nil {
+		return false
+	}
+	*f = hide
+	return true
 }
 
 // minColumnPx is the narrowest a column may be stored at, and matches the
@@ -186,6 +220,12 @@ func (c *Controller) SetDensity(d string) bool {
 	return c.update(true, func(p *Prefs) { p.Density = d })
 }
 
+// SetHidden shows or hides one column. A name that is not a hideable column
+// changes nothing.
+func (c *Controller) SetHidden(col string, hide bool) bool {
+	return c.update(true, func(p *Prefs) { p.Hidden.set(col, hide) })
+}
+
 // SetColumns records the header widths the page has been dragged to.
 func (c *Controller) SetColumns(w Columns) bool {
 	return c.update(true, func(p *Prefs) { p.Columns = w.sane() })
@@ -238,7 +278,9 @@ func (c *Controller) Snapshot(now time.Time) Snapshot {
 		Filter:     c.prefs.filter,
 		Grouped:    c.prefs.Grouped && key == ui.SortStatus,
 		Compact:    c.compactFor(len(rows)),
+		Density:    c.prefs.Density,
 		Columns:    c.prefs.Columns,
+		Hidden:     c.prefs.Hidden,
 		Account:    c.account,
 		Total:      len(c.rows),
 		Agents:     make([]AgentView, 0, len(rows)),
@@ -340,6 +382,7 @@ func (c *Controller) Handle(raw string) Action {
 		PID       int     `json:"pid"`
 		SessionID string  `json:"sessionId"`
 		URL       string  `json:"url"`
+		Col       string  `json:"col"`
 	}
 	if err := json.Unmarshal([]byte(raw), &m); err != nil {
 		return Action{}
@@ -363,6 +406,8 @@ func (c *Controller) Handle(raw string) Action {
 		// pushing a frame back would only redraw the rows underneath.
 		c.SetColumns(m.Widths)
 		return Action{}
+	case "hide":
+		return Action{Repaint: c.SetHidden(m.Col, m.On)}
 	case "focus", "stop":
 		return Action{Kind: m.Cmd, PID: m.PID, SessionID: m.SessionID}
 	case "open":

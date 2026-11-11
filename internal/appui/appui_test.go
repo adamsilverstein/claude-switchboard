@@ -526,3 +526,43 @@ func TestThePageAndGoAgreeOnTheNarrowestColumn(t *testing.T) {
 		t.Errorf("console.js clamps a drag at %spx but minColumnPx is %d", m[1], minColumnPx)
 	}
 }
+
+// A hidden column stays hidden across a relaunch, and the two columns the
+// table cannot do without - NAME, and STATUS, which keeps status from being
+// carried by colour alone - cannot be hidden however the message is worded.
+func TestHiddenColumnsSurviveARelaunchButNameAndStatusStay(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "app.json")
+	c := New(path)
+	if !c.Handle(`{"cmd":"hide","col":"repo","on":true}`).Repaint {
+		t.Error("hiding repo did not repaint")
+	}
+	for _, col := range []string{"name", "status", "nosuch", ""} {
+		if c.Handle(`{"cmd":"hide","col":"` + col + `","on":true}`).Repaint {
+			t.Errorf("hiding %q changed something", col)
+		}
+	}
+	if got := New(path).Snapshot(now).Hidden; got != (Hidden{Repo: true}) {
+		t.Errorf("reopened with %+v, want {Repo:true}", got)
+	}
+	c.Handle(`{"cmd":"hide","col":"repo","on":false}`)
+	if got := New(path).Snapshot(now).Hidden; got != (Hidden{}) {
+		t.Errorf("showing repo again left %+v", got)
+	}
+}
+
+// The View menu ticks one of three densities, so the snapshot has to say
+// which was chosen and not only what it came to.
+func TestSnapshotCarriesTheDensityChoice(t *testing.T) {
+	c := New("")
+	if got := c.Snapshot(now).Density; got != "" {
+		t.Errorf("density = %q before any choice, want empty", got)
+	}
+	c.Handle(`{"cmd":"density","value":"comfy"}`)
+	if got := c.Snapshot(now).Density; got != "comfy" {
+		t.Errorf("density = %q, want comfy", got)
+	}
+	c.Handle(`{"cmd":"density","value":""}`)
+	if got := c.Snapshot(now).Density; got != "" {
+		t.Errorf("density = %q after handing it back, want empty", got)
+	}
+}
