@@ -104,10 +104,14 @@ nothing is running right now - start a `claude` session in another window, or
 pass `--all` to include sessions that recently exited.
 
 Listing works anywhere the Claude Code registry (`~/.claude/sessions/`)
-exists. Focusing a window needs macOS with iTerm2, or tmux; the first time
-you press `enter` on a row, macOS asks for permission to control iTerm2.
-Allow it once - the answer is later editable under System Settings ->
-Privacy & Security -> Automation.
+exists. Focusing a window needs macOS with iTerm2, Terminal.app, or Ghostty
+1.4 or later, or tmux inside any of them; the first time you press `enter`
+on a row, macOS asks for permission to control that terminal. Allow it once -
+the answer is later editable under System Settings -> Privacy & Security ->
+Automation.
+
+An agent in some other terminal (WezTerm, kitty, Warp) is still listed. Picking
+it explains that its terminal cannot be focused yet rather than hiding the row.
 
 ### Codex sessions
 
