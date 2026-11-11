@@ -70,3 +70,19 @@ func TestLastExchangeMissingTranscript(t *testing.T) {
 		t.Error("an unnamed session should report false")
 	}
 }
+
+// A prompt that opens with markup is still yours, and must be paired with
+// its own reply rather than skipped in favour of the one before it.
+func TestLastExchangeKeepsAPromptThatStartsWithMarkup(t *testing.T) {
+	content := strings.Join([]string{
+		`{"type":"user","message":{"role":"user","content":"first prompt"}}`,
+		`{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"first reply"}]}}`,
+		`{"type":"user","message":{"role":"user","content":"<div> is this markup valid?"}}`,
+		`{"type":"user","message":{"role":"user","content":"<command-name>/clear</command-name>"}}`,
+		`{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"second reply"}]}}`,
+	}, "\n") + "\n"
+	ex, _ := LastExchange(writeTranscript(t, cwd, session, content), cwd, session)
+	if ex.Asked != "<div> is this markup valid?" || ex.Reply != "second reply" {
+		t.Errorf("got %+v; want the markup prompt paired with the second reply", ex)
+	}
+}

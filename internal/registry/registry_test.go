@@ -1,6 +1,8 @@
 package registry
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 )
@@ -183,5 +185,39 @@ func TestBackgroundIsKindBg(t *testing.T) {
 	// viewer is on screen, and the list filter asks it separately.
 	if !(Agent{Kind: "bg", Entrypoint: "cli"}).Focusable() {
 		t.Error("background cli session should remain focusable at the registry level")
+	}
+}
+
+func TestRereadSeesTheFileAsItIsNow(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "4242.json")
+	write := func(status, session string) {
+		t.Helper()
+		raw := `{"pid":4242,"sessionId":"` + session + `","status":"` + status + `"}`
+		if err := os.WriteFile(path, []byte(raw), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("idle", "s1")
+	agents, err := Scan(dir)
+	if err != nil || len(agents) != 1 {
+		t.Fatalf("Scan = %v, %v", agents, err)
+	}
+	polled := agents[0]
+	polled.Live = true
+
+	write("busy", "s1")
+	fresh, ok := Reread(polled)
+	if !ok || fresh.Status != "busy" || !fresh.Live {
+		t.Errorf("Reread = %+v, %v; want the busy status and liveness carried over", fresh, ok)
+	}
+
+	write("idle", "s2") // the PID now belongs to another session
+	if _, ok := Reread(polled); ok {
+		t.Error("a file now naming another session should not match")
+	}
+	os.Remove(path)
+	if _, ok := Reread(polled); ok {
+		t.Error("a removed file should not match")
 	}
 }

@@ -115,3 +115,26 @@ func TestSendReplyTmuxChecksThePaneTTY(t *testing.T) {
 		t.Errorf("only the check should have run; ran %q", r.calls)
 	}
 }
+
+// tmux drops a trailing semicolon from a send-keys argument, so "yes;" has
+// to arrive as "yes" plus a hex ";" to be typed as written.
+func TestSendReplyTmuxKeepsTrailingSemicolons(t *testing.T) {
+	rt := ReplyTarget{Backend: "tmux", Pane: "%2", TTY: "/dev/ttys030"}
+	for _, tc := range []struct {
+		text string
+		want []string
+	}{
+		{"yes;", []string{"tmux send-keys -t %2 -l -- yes", "tmux send-keys -t %2 -H 3b"}},
+		{"a;b;;", []string{"tmux send-keys -t %2 -l -- a;b", "tmux send-keys -t %2 -H 3b 3b"}},
+		{";", []string{"tmux send-keys -t %2 -H 3b"}},
+	} {
+		r := &fakeRunner{tmux: "/dev/ttys030\n"}
+		if err := SendReply(r, rt, tc.text); err != nil {
+			t.Fatal(err)
+		}
+		got := r.calls[1 : len(r.calls)-1] // between the tty check and Enter
+		if strings.Join(got, "\n") != strings.Join(tc.want, "\n") {
+			t.Errorf("%q sent\n%s\nwant\n%s", tc.text, strings.Join(got, "\n"), strings.Join(tc.want, "\n"))
+		}
+	}
+}

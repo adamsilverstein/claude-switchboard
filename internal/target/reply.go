@@ -114,8 +114,23 @@ func SendReply(r Runner, t ReplyTarget, text string) error {
 		if got := strings.TrimSpace(out); got != t.TTY {
 			return fmt.Errorf("tmux pane %s is on %s now, not %s; not sending", t.Pane, got, t.TTY)
 		}
-		if _, err := r.Run("tmux", "send-keys", "-t", t.Pane, "-l", "--", text); err != nil {
-			return err
+		// tmux parses a trailing ";" on an argument as a command
+		// separator, even under -l, and drops it. Trailing semicolons
+		// go separately as hex keys instead.
+		body := strings.TrimRight(text, ";")
+		if body != "" {
+			if _, err := r.Run("tmux", "send-keys", "-t", t.Pane, "-l", "--", body); err != nil {
+				return err
+			}
+		}
+		if n := len(text) - len(body); n > 0 {
+			args := []string{"send-keys", "-t", t.Pane, "-H"}
+			for range n {
+				args = append(args, "3b")
+			}
+			if _, err := r.Run("tmux", args...); err != nil {
+				return err
+			}
 		}
 		time.Sleep(replyPause)
 		_, err = r.Run("tmux", "send-keys", "-t", t.Pane, "Enter")

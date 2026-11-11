@@ -61,7 +61,7 @@ func LastExchange(projectsDir, cwd, sessionID string) (Exchange, bool) {
 // reaches a prompt you typed. Tool results are also "user" entries in a
 // transcript, but they carry no text block and are passed over, as are the
 // entries Claude Code writes on your behalf: isMeta instructions and the
-// angle-bracketed command wrappers.
+// wrapped command output listed in wrappers.
 func scanExchange(buf []byte, truncated bool) Exchange {
 	lines := bytes.Split(buf, []byte("\n"))
 	if truncated && len(lines) > 0 {
@@ -93,7 +93,7 @@ func scanExchange(buf []byte, truncated bool) Exchange {
 				continue
 			}
 			text := strings.TrimSpace(blockText(entry.Message.Content, "\n"))
-			if text == "" || strings.HasPrefix(text, "<") {
+			if text == "" || isWrapper(text) {
 				continue
 			}
 			ex.Asked = keepHead(text, maxExchange)
@@ -105,6 +105,30 @@ func scanExchange(buf []byte, truncated bool) Exchange {
 	}
 	ex.Reply, ex.Truncated = keepTail(strings.Join(parts, "\n\n"), maxExchange)
 	return ex
+}
+
+// wrappers are the tags Claude Code wraps around the user entries it writes
+// itself: slash commands and their output, shell escapes, hook and task
+// notices. A prompt you typed that happens to open with markup is still a
+// prompt, so only these are skipped.
+var wrappers = []string{
+	"command-name", "command-message", "command-args",
+	"local-command-stdout", "local-command-stderr", "local-command-caveat",
+	"bash-input", "bash-stdout", "bash-stderr",
+	"task-notification", "system-reminder", "user-prompt-submit-hook",
+}
+
+// isWrapper reports whether a user entry is one of Claude Code's own.
+func isWrapper(text string) bool {
+	if !strings.HasPrefix(text, "<") {
+		return false
+	}
+	for _, w := range wrappers {
+		if rest, ok := strings.CutPrefix(text[1:], w); ok && (rest == "" || rest[0] == '>' || rest[0] == ' ') {
+			return true
+		}
+	}
+	return false
 }
 
 // blockText is contentText with the line breaks left in: the text blocks of
