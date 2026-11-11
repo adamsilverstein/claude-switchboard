@@ -199,6 +199,8 @@ type Model struct {
 	source  Source
 	focuser Focuser
 	stopper Stopper
+	peeker  Peeker
+	replier Replier
 
 	rows     []Row
 	err      error
@@ -208,6 +210,7 @@ type Model struct {
 	sort     SortKey
 	cursor   int             // index into visible()
 	stopping *registry.Agent // agent awaiting stop confirmation
+	peek     *peek           // open peek panel, or nil
 	flash    int             // remaining flash frames on the focused row
 	width    int
 	height   int
@@ -275,10 +278,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tickMsg:
-		return m, tea.Batch(fetch(m.source), tick())
+		cmds := []tea.Cmd{fetch(m.source), tick()}
+		if m.peek != nil && m.peeker != nil {
+			// Reread while the panel is open, so the answer to a
+			// reply appears without closing and reopening it.
+			cmds = append(cmds, loadPeek(m.peeker, m.peek.agent))
+		}
+		return m, tea.Batch(cmds...)
 
 	case rowsMsg:
 		return m.applyRows(msg), nil
+
+	case peekMsg, replyMsg:
+		next, cmd, _ := m.updatePeek(msg)
+		return next, cmd
 
 	case flashMsg:
 		if m.flash > 0 {
@@ -324,6 +337,7 @@ func (m Model) applyRows(msg rowsMsg) Model {
 		selected = rows[m.cursor].Agent.PID
 	}
 	m.rows = msg.rows
+	m.refreshPeekAgent()
 	m.clampCursor()
 	if selected != 0 {
 		for i, r := range m.visible() {
@@ -349,6 +363,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		m.notice = "stop cancelled"
 		return m, nil
+	}
+	if m.peek != nil {
+		return m.handlePeekKey(msg)
 	}
 	if m.typing {
 		switch msg.Type {
@@ -412,6 +429,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "d":
 		m.sort = SortDir
 		return m, nil
+	case " ":
+		return m.openPeek()
 	case "ctrl+x":
 		rows := m.visible()
 		if m.cursor >= len(rows) {

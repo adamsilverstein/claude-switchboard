@@ -44,6 +44,45 @@ func stopAgent(a registry.Agent) error {
 	return syscall.Kill(a.PID, syscall.SIGTERM)
 }
 
+// peekAgent reads an agent's last exchange for the peek panel.
+func peekAgent(projectsDir string, a registry.Agent) (activity.Exchange, error) {
+	if a.Codex() {
+		return activity.Exchange{}, fmt.Errorf("peek reads Claude Code transcripts only")
+	}
+	ex, ok := activity.LastExchange(projectsDir, a.Cwd, a.SessionID)
+	if !ok {
+		return activity.Exchange{}, fmt.Errorf("no transcript found for this session")
+	}
+	return ex, nil
+}
+
+// replyAgent types text into an agent's terminal and presses return.
+//
+// It takes the same care stopAgent does, and more: the row may be a second
+// old, so the agent is re-checked as still being the process it registered
+// as, and its tty is read from that fresh check rather than from the poll.
+// The terminal session found for the tty is then checked against it again
+// at the moment of typing.
+func replyAgent(a registry.Agent, text string) error {
+	if why := ui.ReplyBlocked(a); why != "" {
+		return fmt.Errorf("%s", why)
+	}
+	text, err := target.CleanReply(text)
+	if err != nil {
+		return err
+	}
+	procs, err := locate.Snapshot([]int{a.PID})
+	if err != nil {
+		return err
+	}
+	p, ok := procs[a.PID]
+	if !ok || !registry.SameProcess(a, p.Start) {
+		return fmt.Errorf("agent is gone; not sending")
+	}
+	r := target.ExecRunner{}
+	return target.SendReply(r, target.NewResolver(r).ResolveReply(a.Tmux, p.TTY), text)
+}
+
 // appSource builds the enriched rows the app window shows. It holds the git
 // and forge caches across polls, which is the whole reason it is a value and
 // not a function: the caches are what keep eighteen agents across four
