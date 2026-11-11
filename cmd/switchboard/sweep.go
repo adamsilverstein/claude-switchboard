@@ -159,6 +159,12 @@ func (s sweeper) run(targets []appui.Target) sweepReport {
 			rep.skipped = append(rep.skipped, name+" (no longer done)")
 			continue
 		}
+		// Without a recorded start time a reused PID cannot be told
+		// apart from the agent, and a bulk stop is no place to guess.
+		if a.ProcStart.IsZero() {
+			rep.skipped = append(rep.skipped, a.Name+" (no recorded process start)")
+			continue
+		}
 		if err := s.recheck(r); err != nil {
 			rep.skipped = append(rep.skipped, a.Name+" ("+err.Error()+")")
 			continue

@@ -76,14 +76,16 @@ func (f *fakeSweep) sweeper() sweeper {
 	}
 }
 
+var started = time.Date(2026, 11, 11, 9, 0, 0, 0, time.UTC)
+
 func sweepFixture() *fakeSweep {
 	return &fakeSweep{
 		agents: map[int]registry.Agent{
-			1: {PID: 1, SessionID: "s1", Name: "merged", Cwd: "/clean"},
-			2: {PID: 2, SessionID: "s2", Name: "dirty", Cwd: "/dirty"},
-			3: {PID: 3, SessionID: "s3", Name: "reopened", Cwd: "/clean"},
-			4: {PID: 4, SessionID: "s4", Name: "in tmux", Cwd: "/clean", Tmux: "x:@1.%1"},
-			5: {PID: 5, SessionID: "s5", Name: "no repo", Cwd: "/broken"},
+			1: {PID: 1, SessionID: "s1", Name: "merged", ProcStart: started, Cwd: "/clean"},
+			2: {PID: 2, SessionID: "s2", Name: "dirty", ProcStart: started, Cwd: "/dirty"},
+			3: {PID: 3, SessionID: "s3", Name: "reopened", ProcStart: started, Cwd: "/clean"},
+			4: {PID: 4, SessionID: "s4", Name: "in tmux", ProcStart: started, Cwd: "/clean", Tmux: "x:@1.%1"},
+			5: {PID: 5, SessionID: "s5", Name: "no repo", ProcStart: started, Cwd: "/broken"},
 		},
 		done:  map[int]bool{1: true, 2: true, 4: true, 5: true},
 		dirty: map[string]bool{"/dirty": true},
@@ -165,6 +167,21 @@ func TestSweepLeavesASharedTerminalOpen(t *testing.T) {
 	}
 	if !strings.Contains(rep.String(), "other processes on its terminal, session left open") {
 		t.Errorf("report %q does not say the session was left open", rep.String())
+	}
+}
+
+// A PID with no recorded start could have been reused by anything.
+func TestSweepSkipsAnAgentWithNoRecordedStart(t *testing.T) {
+	f := sweepFixture()
+	a := f.agents[1]
+	a.ProcStart = time.Time{}
+	f.agents[1] = a
+	rep := f.sweeper().run(targets(1))
+	if len(f.stopped) != 0 {
+		t.Errorf("stopped %v with no recorded process start", f.stopped)
+	}
+	if !strings.Contains(rep.String(), "merged (no recorded process start)") {
+		t.Errorf("report %q does not say why it skipped", rep.String())
 	}
 }
 
