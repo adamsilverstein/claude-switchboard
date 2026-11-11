@@ -1216,13 +1216,15 @@ function openRowMenu(at) {
 // A column the window has no room for, or that nothing here can fill, is
 // still listed - hiding it is a choice about the table you get when there
 // is room - but says why it is not on screen.
+//
+// It returns a short hint for the menu and the longer reason for its title.
 function columnUnavailable(col) {
   const s = state.snap;
-  if (col === "context" && !s.anyContext) return "No agent here reports context";
-  if (col === "ref" && !s.anyRef) return "No agent here is on a pull request";
-  if (col === "repo" && innerWidth < 1600) return "Shown under the name at this width";
-  if (col === "summary" && innerWidth <= 1200) return "Shown in the readout at this width";
-  return "";
+  if (col === "context" && !s.anyContext) return ["none here", "No agent here reports context"];
+  if (col === "ref" && !s.anyRef) return ["none here", "No agent here is on a pull request"];
+  if (col === "repo" && innerWidth < 1600) return ["too narrow", "Shown under the name at this width"];
+  if (col === "summary" && innerWidth <= 1200) return ["too narrow", "Shown in the readout at this width"];
+  return ["", ""];
 }
 
 function columnItems() {
@@ -1232,9 +1234,9 @@ function columnItems() {
     fixed("Status"),
     fixed("Name"),
     ...HIDEABLE.map(([col, label]) => {
-      const why = columnUnavailable(col);
+      const [hint, why] = columnUnavailable(col);
       return {
-        label, checked: !hidden[col], title: why, hint: why ? "–" : "",
+        label, checked: !hidden[col], title: why, hint,
         run: () => send({ cmd: "hide", col: col, on: !hidden[col] }),
       };
     }),
