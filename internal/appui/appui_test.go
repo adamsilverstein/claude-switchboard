@@ -30,6 +30,7 @@ func rows() []ui.Row {
 				Ref: forge.Ref{
 					Number: 13, Kind: "pr", State: "open", Title: "Console redesign",
 					URL: "https://github.com/adamsilverstein/claude-switchboard/pull/13", Known: true,
+					Checks: forge.Checks{Pass: 9, Fail: 2}, Review: "changes", Conflicts: true,
 				},
 			},
 		},
@@ -89,6 +90,10 @@ func TestSnapshotFormatsARow(t *testing.T) {
 	}
 	if v.RefURL != "https://github.com/adamsilverstein/claude-switchboard/pull/13" {
 		t.Errorf("refUrl = %q", v.RefURL)
+	}
+	if v.RefChecks != "fail" || v.RefChecksLabel != "2 failing" || v.RefReview != "changes" || !v.RefConflicts {
+		t.Errorf("checks = %q %q, review = %q, conflicts = %t; want fail, 2 failing, changes, true",
+			v.RefChecks, v.RefChecksLabel, v.RefReview, v.RefConflicts)
 	}
 }
 

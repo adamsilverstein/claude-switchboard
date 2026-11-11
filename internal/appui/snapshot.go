@@ -136,6 +136,15 @@ type AgentView struct {
 	RefTitle string `json:"refTitle,omitempty"`
 	RefURL   string `json:"refUrl,omitempty"`
 
+	// The checks, review and conflicts on an open or draft pull request.
+	// RefChecks is "pass", "fail" or "pending"; RefChecksLabel says it in
+	// a phrase, "2 failing". RefReview is "approved", "changes" or
+	// "required". All empty when there is nothing to mark.
+	RefChecks      string `json:"refChecks,omitempty"`
+	RefChecksLabel string `json:"refChecksLabel,omitempty"`
+	RefReview      string `json:"refReview,omitempty"`
+	RefConflicts   bool   `json:"refConflicts,omitempty"`
+
 	TTY       string `json:"tty,omitempty"`
 	Tmux      string `json:"tmux,omitempty"`
 	Focusable bool   `json:"focusable"`
@@ -216,6 +225,10 @@ func view(now time.Time, r ui.Row) AgentView {
 		RefState:       t.Ref.State,
 		RefTitle:       t.Ref.Title,
 		RefURL:         t.Ref.URL,
+		RefChecks:      t.Ref.Checks.State(),
+		RefChecksLabel: t.Ref.Checks.Label(),
+		RefReview:      t.Ref.Review,
+		RefConflicts:   t.Ref.Conflicts,
 	}
 	if t.ContextWindow > 0 {
 		v.ContextWindow = FormatTokens(t.ContextWindow)

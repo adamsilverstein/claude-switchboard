@@ -626,13 +626,41 @@ function refCell(a) {
     n.disabled = true;
   }
   c.append(n);
+  const marks = refMarks(a);
+  if (marks.length) {
+    const m = marks[0];
+    const g = el("i", "mark m-" + m.tone, m.glyph);
+    g.title = marks.map((k) => k.glyph + " " + k.text).join(" · ");
+    g.setAttribute("aria-label", marks.map((k) => k.text).join(", "));
+    c.append(g);
+  }
   if (a.refState) c.append(el("i", "state s-" + a.refState, a.refState));
   return c;
 }
 
+// refMarks is what an open pull request's checks, review and mergeability
+// say, worst first. The table has room for one glyph beside the number, so
+// it shows the first; the readout and the tooltip show them all.
+//
+// Order is urgency: a red run or a change request is work handed back, a
+// conflict blocks the merge, a run still going is a wait, and green or a
+// pending review is the quiet end of the list.
+function refMarks(a) {
+  const out = [];
+  if (a.refChecks === "fail") out.push({ tone: "alert", glyph: "✗", text: a.refChecksLabel });
+  if (a.refReview === "changes") out.push({ tone: "alert", glyph: "●", text: "changes requested" });
+  if (a.refConflicts) out.push({ tone: "alert", glyph: "⚠\uFE0E", text: "conflicts" });
+  if (a.refChecks === "pending") out.push({ tone: "wait", glyph: "◌", text: a.refChecksLabel });
+  if (a.refChecks === "pass") out.push({ tone: "ok", glyph: "✓", text: a.refChecksLabel });
+  if (a.refReview === "approved") out.push({ tone: "ok", glyph: "✓", text: "approved" });
+  if (a.refReview === "required") out.push({ tone: "quiet", glyph: "◐", text: "review requested" });
+  return out;
+}
+
 function refTitle(a) {
   const what = (a.refKind === "issue" ? "issue " : "pull request ") + a.ref;
-  return [what, a.refState, a.refTitle].filter(Boolean).join(" · ");
+  const marks = refMarks(a).map((k) => k.text);
+  return [what, a.refState, ...marks, a.refTitle].filter(Boolean).join(" · ");
 }
 
 function repoLabel(a) {
@@ -762,6 +790,12 @@ function sessionCell(a) {
     l.append(n);
     if (a.refTitle) l.append(line("dim", " " + a.refTitle));
     c.append(l);
+    const marks = refMarks(a);
+    if (marks.length) {
+      const m = line("line marks", "");
+      for (const k of marks) m.append(el("span", "mark m-" + k.tone, k.glyph + " " + k.text));
+      c.append(m);
+    }
   }
   if (a.elapsed) c.append(line("line soft", "elapsed " + a.elapsed));
   if (a.permissionMode) c.append(el("span", "chip", a.permissionMode + " mode"));

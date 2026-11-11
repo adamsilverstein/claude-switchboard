@@ -117,10 +117,17 @@ var (
 	used     = []int{158_000, 620_000, 176_000, 62_000, 310_000}
 	modes    = []string{"auto", "plan", "default"}
 	// One of each state, plus a branch with no pull request at all: the
-	// dash is as much a case worth looking at as the number is.
+	// dash is as much a case worth looking at as the number is. The open
+	// ones between them carry each kind of check and review mark.
 	refs = []forge.Ref{
-		{Number: 13, Kind: "pr", State: "open", Title: "Replace the app window's terminal with a Console", URL: "https://github.com/adamsilverstein/claude-switchboard/pull/13", Known: true},
-		{Number: 76767, Kind: "pr", State: "draft", Title: "Add emoji reactions to notes", URL: "https://github.com/WordPress/gutenberg/pull/76767", Known: true},
+		{Number: 13, Kind: "pr", State: "open", Title: "Replace the app window's terminal with a Console", URL: "https://github.com/adamsilverstein/claude-switchboard/pull/13", Known: true,
+			Checks: forge.Checks{Pass: 12}, Review: "required"},
+		{Number: 76767, Kind: "pr", State: "draft", Title: "Add emoji reactions to notes", URL: "https://github.com/WordPress/gutenberg/pull/76767", Known: true,
+			Checks: forge.Checks{Pass: 120, Pending: 14}},
+		{Number: 81940, Kind: "pr", State: "open", Title: "Fix flaky e2e on trunk", URL: "https://github.com/WordPress/gutenberg/pull/81940", Known: true,
+			Checks: forge.Checks{Pass: 131, Fail: 2}, Review: "changes"},
+		{Number: 13446, Kind: "pr", State: "open", Title: "Speculative loading defaults", URL: "https://github.com/WordPress/performance/pull/13446", Known: true,
+			Checks: forge.Checks{Pass: 40}, Review: "approved", Conflicts: true},
 		{Known: true},
 		{Number: 11, Kind: "issue", State: "open", Title: "Console redesign", URL: "https://github.com/adamsilverstein/claude-switchboard/issues/11", Known: true},
 		{Number: 10, Kind: "pr", State: "merged", Title: "Fix multi-monitor focus", URL: "https://github.com/adamsilverstein/claude-switchboard/pull/10", Known: true},
