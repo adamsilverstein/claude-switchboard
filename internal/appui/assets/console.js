@@ -1130,7 +1130,10 @@ function openMenu(items, at) {
   m.style.left = Math.max(8, x) + "px";
   m.style.top = Math.max(8, y) + "px";
 
-  state.menu = { opener: at.opener || null, targetKey: at.targetKey || "" };
+  // Where focus goes back to when the menu is dismissed: its button, or
+  // whatever had focus when a context menu opened over it.
+  const back = at.opener || (document.activeElement !== document.body ? document.activeElement : null);
+  state.menu = { opener: at.opener || null, back, targetKey: at.targetKey || "" };
   if (at.opener) at.opener.setAttribute("aria-expanded", "true");
   markMenuTarget();
   const first = menuItems()[0];
@@ -1173,10 +1176,13 @@ function menuKey(e) {
       if (i >= 0) items[i].click();
       return;
     case "Escape": case "Tab": {
-      e.preventDefault();
-      const opener = state.menu.opener;
+      // Focus goes back where it came from either way. Escape stops
+      // there; Tab carries on from it to the next control, as it would
+      // have if the menu had never opened.
+      if (e.key === "Escape") e.preventDefault();
+      const back = state.menu.back;
       closeMenu();
-      if (opener) opener.focus();
+      if (back && back.isConnected) back.focus();
       return;
     }
   }
@@ -1213,6 +1219,15 @@ function openRowMenu(at) {
   ], { x: at.x, y: at.y, targetKey: key(a), label: "Actions for " + a.name });
 }
 
+// The menu key and shift-F10 open the menu for whatever has focus: the
+// columns menu on a header, the selected row's actions anywhere else.
+function openContextMenuFromKeyboard() {
+  const inHead = document.activeElement && $("head").contains(document.activeElement);
+  if (!inHead) { openRowMenu(null); return; }
+  const r = document.activeElement.getBoundingClientRect();
+  openMenu(columnMenuItems(), { x: r.left, y: r.bottom + 4 });
+}
+
 // A column the window has no room for, or that nothing here can fill, is
 // still listed - hiding it is a choice about the table you get when there
 // is room - but says why it is not on screen.
@@ -1243,14 +1258,15 @@ function columnItems() {
   ];
 }
 
+function resetColumnsItem() {
+  return {
+    label: "Reset column widths", run: () => { state.columns = {}; paintColumns(); sendColumns(); },
+    disabled: Object.keys(state.columns).length === 0,
+  };
+}
+
 function columnMenuItems() {
-  return [
-    { heading: "Columns" },
-    ...columnItems(),
-    { sep: true },
-    { label: "Reset column widths", run: () => { state.columns = {}; paintColumns(); sendColumns(); },
-      disabled: Object.keys(state.columns).length === 0 },
-  ];
+  return [{ heading: "Columns" }, ...columnItems(), { sep: true }, resetColumnsItem()];
 }
 
 function viewMenuItems() {
@@ -1279,7 +1295,7 @@ function viewMenuItems() {
     },
     { heading: "Sort by" }, ...sorts,
     { heading: "Density" }, ...density,
-    { heading: "Columns" }, ...columnItems().slice(2),
+    { heading: "Columns" }, ...columnItems().slice(2), resetColumnsItem(),
     { sep: true },
     { label: "Sidebar", hint: "⌘1", checked: sidebarShown(), run: toggleSidebar,
       disabled: innerWidth < 980, title: innerWidth < 980 ? "The window is too narrow for the sidebar" : "" },
@@ -1343,9 +1359,9 @@ window.addEventListener("keydown", (e) => {
     case "e": e.preventDefault(); toggleEnded(); return;
     case "q": e.preventDefault(); send({ cmd: "quit" }); return;
     case "?": e.preventDefault(); openKeys(); return;
-    case "ContextMenu": e.preventDefault(); openRowMenu(null); return;
+    case "ContextMenu": e.preventDefault(); openContextMenuFromKeyboard(); return;
   }
-  if (e.shiftKey && e.key === "F10") { e.preventDefault(); openRowMenu(null); return; }
+  if (e.shiftKey && e.key === "F10") { e.preventDefault(); openContextMenuFromKeyboard(); return; }
   if (e.ctrlKey && e.key.toLowerCase() === "x") { e.preventDefault(); stopAgent(); return; }
   if (!e.ctrlKey && !e.metaKey && SORT_BY_KEY[e.key]) {
     e.preventDefault();
@@ -1403,6 +1419,10 @@ window.__snapshot = (json) => {
   // nothing for a keystroke should not cost you your place.
   const cur = selected();
   if (cur) state.cursor = { pid: cur.pid, sessionId: cur.sessionId };
+  // A row menu acts on the selected agent. If that agent left with this
+  // frame, the selection has moved on and the menu would act on another
+  // one - Stop included - so it closes rather than quietly retargeting.
+  if (state.menu && state.menu.targetKey && (!cur || key(cur) !== state.menu.targetKey)) closeMenu();
   render();
 };
 window.__notice = (text, alert) => notice(text, alert);
