@@ -77,6 +77,8 @@ func (t *ProcTree) Host(pid int) (Host, string) {
 	return HostUnknown, name
 }
 
+// hostOf maps a process name to the terminal it belongs to. iTerm runs
+// sessions under a versioned iTermServer, not the app itself.
 func hostOf(base string) Host {
 	switch {
 	case base == "iTerm2" || strings.HasPrefix(base, "iTermServer"):

@@ -127,6 +127,7 @@ func (res *Resolver) window(tty string, pid int) (hostWindow, bool) {
 	return hostWindow{}, false
 }
 
+// itermWindow describes an iTerm session as a window to focus.
 func itermWindow(s ItermSession) hostWindow {
 	return hostWindow{
 		backend:  "iterm",
@@ -175,6 +176,8 @@ func (res *Resolver) host(pid int) (Host, string) {
 	return res.tree.Host(pid)
 }
 
+// terminalTabs enumerates Terminal.app on first use and indexes its tabs
+// by tty. A failure is kept for missReason and leaves the index empty.
 func (res *Resolver) terminalTabs() map[string]TerminalTab {
 	if !res.terminalScanned {
 		res.terminalScanned = true
@@ -190,6 +193,9 @@ func (res *Resolver) terminalTabs() map[string]TerminalTab {
 	return res.terminalByTTY
 }
 
+// ghosttyTerminals enumerates Ghostty on first use and indexes its
+// terminals by tty. A failure is kept for missReason and leaves the index
+// empty.
 func (res *Resolver) ghosttyTerminals() map[string]GhosttyTerminal {
 	if !res.ghosttyScanned {
 		res.ghosttyScanned = true
@@ -205,6 +211,8 @@ func (res *Resolver) ghosttyTerminals() map[string]GhosttyTerminal {
 	return res.ghosttyByTTY
 }
 
+// resolveTmux locates an agent in a tmux pane: the window hosting the
+// session's client, then the window and pane inside tmux.
 func (res *Resolver) resolveTmux(field string) Location {
 	ref, ok := ParseTmuxRef(field)
 	if !ok {

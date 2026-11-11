@@ -74,6 +74,8 @@ type fakeRunner struct {
 	calls       []string
 }
 
+// Run routes each osascript call to the backend its script names, and
+// tells the process-tree ps call from the viewer scan by its columns.
 func (f *fakeRunner) Run(name string, args ...string) (string, error) {
 	f.calls = append(f.calls, name+" "+strings.Join(args, " "))
 	switch name {
