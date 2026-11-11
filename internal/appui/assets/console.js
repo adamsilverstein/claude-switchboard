@@ -201,6 +201,8 @@ function scrollCursorIntoView() {
 
 // Narrower than this and the header label has nothing left to show.
 const MIN_COL = 44;
+// The most agents one sweep may name; Go refuses a longer list (maxSweep).
+const MAX_SWEEP = 100;
 // What a flexible column keeps when a fixed one grows into it. Higher than
 // MIN_COL because the flexible columns are the two that carry a sentence:
 // a NAME column too narrow to show a word has stopped being a column.
@@ -647,7 +649,7 @@ function bandEl(status, n) {
   if (status === DONE) {
     const sweep = el("button", "sweep", "Sweep ⇧X");
     sweep.type = "button";
-    sweep.title = "Stop every agent in this group and close its iTerm session";
+    sweep.title = "Stop every agent in this group, closing its iTerm pane where it can";
     sweep.onclick = (e) => { e.stopPropagation(); sweepDone(); };
     b.append(sweep);
   }
@@ -1076,7 +1078,8 @@ function sweepDone() {
   const dirty = done.filter((a) => a.dirty);
   const skip = dirty.length ? " - skipping " + names(dirty) + " (uncommitted changes)" : "";
   if (!clean.length) { notice("nothing to sweep" + skip, true); return; }
-  ask("sweep " + clean.length + " done (" + names(clean) + "): stop each and close its session?" + skip + " y/N", { sweep: clean });
+  if (clean.length > MAX_SWEEP) { notice("too many to sweep at once (" + clean.length + ", the limit is " + MAX_SWEEP + ")", true); return; }
+  ask("sweep " + clean.length + " done (" + names(clean) + "): stop each, closing its iTerm pane where it can?" + skip + " y/N", { sweep: clean });
 }
 
 // names lists every agent a prompt is about. A bulk stop should say exactly

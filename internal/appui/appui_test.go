@@ -528,6 +528,19 @@ func TestThePageAndGoAgreeOnTheNarrowestColumn(t *testing.T) {
 	}
 }
 
+// A sweep the page confirmed and Go then dropped for being too long would
+// say "sweeping" and do nothing, so the page has to know Go's limit.
+func TestThePageAndGoAgreeOnTheLongestSweep(t *testing.T) {
+	m := regexp.MustCompile(`const MAX_SWEEP = (\d+)`).
+		FindStringSubmatch(string(mustRead("assets/console.js")))
+	if m == nil {
+		t.Fatal("no MAX_SWEEP in console.js; the pattern needs updating")
+	}
+	if m[1] != strconv.Itoa(maxSweep) {
+		t.Errorf("console.js allows %s agents per sweep but maxSweep is %d", m[1], maxSweep)
+	}
+}
+
 // An idle agent on a merged pull request reads as done, not as waiting on
 // you, and only a row that still reads as done can be swept.
 func TestDoneRowsReadAsDoneAndOnlyTheyAreSweepable(t *testing.T) {

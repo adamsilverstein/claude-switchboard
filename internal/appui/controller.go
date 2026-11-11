@@ -388,7 +388,8 @@ type Target struct {
 
 // maxSweep bounds how many agents one sweep command may name. The page only
 // ever sends the Done band, and nobody has a thousand agents; a longer list
-// is a malformed message, not a bigger cleanup.
+// is a malformed message, not a bigger cleanup. console.js checks the same
+// limit (MAX_SWEEP) before it asks, so a confirmed sweep is never dropped.
 const maxSweep = 100
 
 // Handle applies one command from the page.
