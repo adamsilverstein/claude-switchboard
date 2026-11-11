@@ -109,8 +109,8 @@ func TestResolveGhosttyAgent(t *testing.T) {
 		t.Errorf("Backend = %q", loc.Backend)
 	}
 	args := loc.Commands[0].Args
-	if args[len(args)-1] != "8C1D2E3F-BBBB" {
-		t.Errorf("focus should target the terminal id, got %q", args[len(args)-1])
+	if got := strings.Join(args[len(args)-2:], " "); got != "8C1D2E3F-BBBB /dev/ttys031" {
+		t.Errorf("focus should pass the terminal id and its tty, got %q", got)
 	}
 	// The agent runs under Ghostty, so Terminal is never asked.
 	for _, c := range r.calls {
@@ -187,6 +187,18 @@ func TestEnumerationsDoNotLaunchTheApp(t *testing.T) {
 	for name, script := range map[string]string{"Terminal": listTerminalScript, "Ghostty": listGhosttyScript} {
 		if !strings.HasPrefix(script, "if application id") || !strings.Contains(strings.SplitN(script, "\n", 2)[0], "is not running then return") {
 			t.Errorf("%s enumeration should return early when the app is not running", name)
+		}
+	}
+}
+
+// A terminal that quit between enumeration and focus must not be relaunched
+// by the focus script just to report that the agent is gone.
+func TestFocusScriptsDoNotRelaunchTheApp(t *testing.T) {
+	for name, script := range map[string]string{"Terminal": focusTerminalScript, "Ghostty": focusGhosttyScript} {
+		guard := strings.Index(script, "is not running then return \"not found\"")
+		tell := strings.Index(script, "tell application")
+		if guard < 0 || guard > tell {
+			t.Errorf("%s focus should check the app is running before talking to it", name)
 		}
 	}
 }

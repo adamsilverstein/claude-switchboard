@@ -76,11 +76,14 @@ func ParseTerminalTabs(out string) []TerminalTab {
 // layout moved, as in the iTerm focus script.
 //
 // The window is raised on both sides of the activate: activating Terminal
-// raises its key window over the one just put in front.
+// raises its key window over the one just put in front. If Terminal quit
+// after enumeration, the script reports "not found" instead of relaunching
+// it.
 const focusTerminalScript = `on run argv
 	set targetTty to item 1 of argv
 	set wid to (item 2 of argv) as integer
 	set ti to (item 3 of argv) as integer
+	if application id "com.apple.Terminal" is not running then return "not found"
 	set found to false
 	tell application id "com.apple.Terminal"
 		try

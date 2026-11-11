@@ -57,15 +57,26 @@ func ParseGhosttyTerminals(out string) []GhosttyTerminal {
 	return terms
 }
 
-// focusGhosttyScript focuses a terminal by id. Ghostty's focus command
-// selects the tab and raises the window but does not bring Ghostty forward
-// when it is in the background, so it activates as well and then focuses
-// again: activating raises Ghostty's key window, which may not be the one
-// just focused.
+// focusGhosttyScript focuses a terminal by id, after checking the id still
+// holds the agent's tty. If it does not, the terminal is looked up by tty
+// instead, so a reused or stale id never focuses the wrong surface. If
+// Ghostty quit after enumeration, the script reports "not found" instead
+// of relaunching it.
+//
+// Ghostty's focus command selects the tab and raises the window but does
+// not bring Ghostty forward when it is in the background, so it activates
+// as well and then focuses again: activating raises Ghostty's key window,
+// which may not be the one just focused.
 const focusGhosttyScript = `on run argv
 	set targetId to item 1 of argv
+	set targetTty to item 2 of argv
+	if application id "com.mitchellh.ghostty" is not running then return "not found"
 	tell application id "com.mitchellh.ghostty"
 		set matches to (every terminal whose id is targetId)
+		if (count of matches) > 0 then
+			if (tty of item 1 of matches) is not targetTty then set matches to {}
+		end if
+		if (count of matches) is 0 then set matches to (every terminal whose tty is targetTty)
 		if (count of matches) is 0 then return "not found"
 		set t to item 1 of matches
 		focus t
@@ -80,5 +91,5 @@ end run`
 // GhosttyFocusCommand returns the osascript step that focuses a Ghostty
 // terminal.
 func GhosttyFocusCommand(t GhosttyTerminal) Command {
-	return Command{Name: "osascript", Args: []string{"-e", focusGhosttyScript, t.ID}}
+	return Command{Name: "osascript", Args: []string{"-e", focusGhosttyScript, t.ID, t.TTY}}
 }
