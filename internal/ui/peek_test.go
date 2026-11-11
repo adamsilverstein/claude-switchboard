@@ -171,3 +171,20 @@ func TestWrap(t *testing.T) {
 		t.Errorf("an unbroken word should hard-wrap; got %q", got)
 	}
 }
+
+func TestPeekStripsTerminalEscapes(t *testing.T) {
+	m := loaded(t, nil).WithPeek(func(a registry.Agent) (activity.Exchange, error) {
+		return activity.Exchange{Asked: "hi", Reply: "clear \x1b[2J and bell \a and \u009b csi"}, nil
+	}, nil)
+	m, cmd := space(t, m)
+	m = applyAll(t, m, cmd)
+	view := m.View()
+	for _, bad := range []string{"\x1b[2J", "\a", "\u009b"} {
+		if strings.Contains(view, bad) {
+			t.Errorf("view carries raw control %q", bad)
+		}
+	}
+	if !strings.Contains(view, "clear") || !strings.Contains(view, "csi") {
+		t.Error("the readable text should survive")
+	}
+}

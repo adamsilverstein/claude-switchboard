@@ -3,6 +3,7 @@ package ui
 import (
 	"fmt"
 	"strings"
+	"unicode"
 	"unicode/utf8"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -266,7 +267,7 @@ func (m Model) peekBody() []string {
 	p := m.peek
 	switch {
 	case p.err != nil:
-		return []string{deadStyle.Render("  " + p.err.Error())}
+		return []string{deadStyle.Render("  " + printable(p.err.Error()))}
 	case !p.loaded:
 		return []string{deadStyle.Render("  reading transcript…")}
 	}
@@ -274,7 +275,7 @@ func (m Model) peekBody() []string {
 	w := max(m.width-gutter, 20)
 	var out []string
 	speaker := func(who, text string) {
-		for i, l := range Wrap(text, w) {
+		for i, l := range Wrap(printable(text), w) {
 			label := ""
 			if i == 0 {
 				label = who
@@ -302,6 +303,25 @@ func (m Model) peekBody() []string {
 
 func headerLabel(s string, w int) string {
 	return footerStyle.Render(s) + strings.Repeat(" ", w-len(s))
+}
+
+// printable makes transcript text safe to print into a terminal. A
+// transcript holds whatever a tool printed and the agent quoted back, and an
+// escape sequence in it would be run by the terminal rather than shown. Tabs
+// become spaces; every other control character but the line break becomes
+// U+FFFD.
+func printable(s string) string {
+	return strings.Map(func(r rune) rune {
+		switch {
+		case r == '\n':
+			return r
+		case r == '\t':
+			return ' '
+		case unicode.IsControl(r):
+			return utf8.RuneError
+		}
+		return r
+	}, s)
 }
 
 // Wrap breaks text into lines of at most w runes, keeping its own line
