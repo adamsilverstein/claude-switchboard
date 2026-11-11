@@ -183,11 +183,23 @@ on, how long it has been running, and which pull request it is working on.
 Filtering and sorting happen in the same Go functions the terminal picker
 calls, so the two cannot disagree about what "sorted by status" means.
 
-The list groups by status - **Needs you**, **Working**, **Idle**, **Ended** -
-whenever it is sorted by status, and goes flat under any other sort. "Needs
-you" is derived rather than reported: an idle agent whose last transcript
-entry is its own reply has finished its turn and handed control back. Ended
-agents stay listed, collapsed, and are never dropped.
+The list groups by status - **Needs you**, **Working**, **Idle**, **Done**,
+**Ended** - whenever it is sorted by status, and goes flat under any other
+sort. "Needs you" is derived rather than reported: an idle agent whose last
+transcript entry is its own reply has finished its turn and handed control
+back. Ended agents stay listed, collapsed, and are never dropped.
+
+**Done** is derived too: a live, idle agent whose branch's pull request has
+merged or closed. Its work has shipped, so it leaves Needs you and sits below
+every live queue. An agent mid-turn on a merged branch stays in Working - it
+may be writing the follow-up. `shift-X`, or the band's Sweep button, stops
+the whole group in one go: it asks once, naming the agents it is about to
+stop, and leaves out any whose working tree has uncommitted changes. Each
+agent is checked again - still done, still clean - just before it is
+signalled. Once a stopped agent has exited, the iTerm session it ran in is
+closed (the pane, not the window, so other tabs survive). A tmux pane or a
+background job's viewer is never closed, because it shows other work too.
+Worktrees are left alone.
 
 The **PR / Issue** column asks GitHub what the agent's branch belongs to and
 shows the number beside its state - open, draft, merged, closed. Clicking the
@@ -217,7 +229,8 @@ widen it again and the shape you gave the table comes back.
 Keys: arrows or `j`/`k` move, `enter` focuses, `/` filters across name,
 directory, repository, model, pull request and summary, `s`/`a`/`c`/`n`/`r`/`d` sort by
 status, age, context, name, repo or directory, `e` expands the Ended group,
-`ctrl+x` (then `y`) stops an agent with SIGTERM, `cmd-1` hides the sidebar,
+`ctrl+x` (then `y`) stops an agent with SIGTERM, `shift-X` (then `y`)
+sweeps the Done group, `cmd-1` hides the sidebar,
 `q` or `cmd-q` quits. Clicking a row selects it, double-clicking focuses it,
 and the sidebar's queue, repository and model lists are filters.
 
