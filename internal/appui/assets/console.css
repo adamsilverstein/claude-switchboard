@@ -518,6 +518,17 @@ body.resizing { cursor: col-resize; user-select: none; }
   font-weight: 600;
 }
 .mark.m-alert { color: var(--alert); }
+/* Green and red checks are the two states read most often, so they get
+ * the shapes people already know from GitHub: a white tick on a green
+ * box, and a bold red cross. */
+.mark.m-fail { color: var(--alert); font-size: 13px; font-weight: 800; line-height: 1; }
+.mark.m-pass {
+  display: inline-block;
+  padding: 0 3px;
+  line-height: 1.35;
+  background: var(--busy);
+  color: #fff;
+}
 .mark.m-wait { color: var(--idle); }
 .mark.m-ok { color: var(--busy); }
 .mark.m-quiet { color: var(--muted); }
@@ -526,6 +537,8 @@ body.resizing { cursor: col-resize; user-select: none; }
 .row[aria-selected="true"] .ref .num { color: #fff; }
 .row[aria-selected="true"] .ref .state,
 .row[aria-selected="true"] .ref .mark { color: var(--on-accent-dim); }
+.row[aria-selected="true"] .ref .mark.m-pass { color: #fff; }
+.row[data-live="false"] .ref .mark.m-pass { color: #fff; background: var(--dead); }
 
 /* The readout repeats the number, so it gets the same affordance. */
 .cell .num {

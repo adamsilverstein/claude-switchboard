@@ -647,11 +647,11 @@ function refCell(a) {
 // pending review is the quiet end of the list.
 function refMarks(a) {
   const out = [];
-  if (a.refChecks === "fail") out.push({ tone: "alert", glyph: "✗", text: a.refChecksLabel });
+  if (a.refChecks === "fail") out.push({ tone: "fail", glyph: "✗", text: a.refChecksLabel });
   if (a.refReview === "changes") out.push({ tone: "alert", glyph: "●", text: "changes requested" });
   if (a.refConflicts) out.push({ tone: "alert", glyph: "⚠\uFE0E", text: "conflicts" });
   if (a.refChecks === "pending") out.push({ tone: "wait", glyph: "◌", text: a.refChecksLabel });
-  if (a.refChecks === "pass") out.push({ tone: "ok", glyph: "✓", text: a.refChecksLabel });
+  if (a.refChecks === "pass") out.push({ tone: "pass", glyph: "✓", text: a.refChecksLabel });
   if (a.refReview === "approved") out.push({ tone: "ok", glyph: "✓", text: "approved" });
   if (a.refReview === "required") out.push({ tone: "quiet", glyph: "◐", text: "review requested" });
   return out;
@@ -793,7 +793,11 @@ function sessionCell(a) {
     const marks = refMarks(a);
     if (marks.length) {
       const m = line("line marks", "");
-      for (const k of marks) m.append(el("span", "mark m-" + k.tone, k.glyph + " " + k.text));
+      for (const k of marks) {
+        const item = el("span", "mark-item");
+        item.append(el("span", "mark m-" + k.tone, k.glyph), " " + k.text);
+        m.append(item);
+      }
       c.append(m);
     }
   }
