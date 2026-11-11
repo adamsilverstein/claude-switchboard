@@ -2,6 +2,7 @@ package appui
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -548,6 +549,13 @@ func TestDoneRowsReadAsDoneAndOnlyTheyAreSweepable(t *testing.T) {
 	}
 	if _, ok := c.Sweepable(2, "s2"); ok {
 		t.Error("a busy agent was sweepable")
+	}
+
+	// A failed poll keeps the old rows, which are no basis for stopping
+	// anything.
+	c.SetRows(nil, Account{}, errors.New("scan failed"), now)
+	if _, ok := c.Sweepable(1, "s1"); ok {
+		t.Error("an agent was sweepable while the last poll had failed")
 	}
 
 	// The branch moved on to new work since the page drew the list.

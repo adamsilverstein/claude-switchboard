@@ -1,8 +1,11 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"strings"
+	"sync"
+	"syscall"
 	"time"
 
 	"github.com/adamsilverstein/claude-switchboard/internal/appui"
@@ -10,6 +13,7 @@ import (
 	"github.com/adamsilverstein/claude-switchboard/internal/locate"
 	"github.com/adamsilverstein/claude-switchboard/internal/registry"
 	"github.com/adamsilverstein/claude-switchboard/internal/target"
+	"github.com/adamsilverstein/claude-switchboard/internal/ui"
 )
 
 // sweeper stops the agents in the Done group and closes the iTerm sessions
@@ -17,12 +21,16 @@ import (
 // order of operations - and above all what it refuses to touch - is testable
 // without signalling anything.
 type sweeper struct {
-	// sweepable is the controller's answer to "is this row still done".
-	sweepable func(pid int, session string) (registry.Agent, bool)
+	// sweepable is the controller's answer to "is this row still done",
+	// and recheck asks the machine again, past every cache, right before
+	// the agent is stopped.
+	sweepable func(pid int, session string) (ui.Row, bool)
+	recheck   func(ui.Row) error
 	dirty     func(cwd string) (bool, error)
 	locate    func(registry.Agent) target.Location
 	stop      func(registry.Agent) error
 	gone      func(registry.Agent) bool
+	quiet     func(target.Location) (bool, error)
 	close     func(target.Location) error
 
 	// wait is how long to give the stopped agents to exit before their
@@ -39,25 +47,58 @@ const sweepTimeout = 5 * time.Second
 func newSweeper(control *appui.Controller) sweeper {
 	return sweeper{
 		sweepable: control.Sweepable,
+		recheck:   recheckDone,
 		dirty:     func(cwd string) (bool, error) { return git.Dirty(git.ExecRunner{}, cwd) },
 		locate:    locateAgent,
 		stop:      stopAgent,
 		gone:      agentGone,
+		quiet:     func(loc target.Location) (bool, error) { return target.TTYQuiet(target.ExecRunner{}, loc.TTY) },
 		close:     func(loc target.Location) error { return target.Close(target.ExecRunner{}, loc) },
 		wait:      sweepTimeout,
 		poll:      100 * time.Millisecond,
 	}
 }
 
-// agentGone reports whether an agent's process has exited, counting a PID
-// that now belongs to some other process as exited.
+// recheckDone reads the agent's registry entry and branch afresh. The row
+// it was swept from can be up to a poll old, and an agent that took a prompt
+// or a checkout that moved to new work in that time is not done any more.
+func recheckDone(r ui.Row) error {
+	a, err := registry.Load(r.Agent.File)
+	if err != nil {
+		return errors.New("could not re-read its status")
+	}
+	if a.PID != r.Agent.PID || a.SessionID != r.Agent.SessionID || a.Status != "idle" {
+		return errors.New("no longer idle")
+	}
+	b, err := git.Branch(git.ExecRunner{}, r.Agent.Cwd)
+	if err != nil {
+		return errors.New("could not check its branch")
+	}
+	if b != r.Telemetry.Branch {
+		return errors.New("branch changed")
+	}
+	return nil
+}
+
+// agentGone reports whether an agent's process has exited. Only the kernel
+// saying there is no such process counts; a ps that failed or came back
+// empty proves nothing, and closing on it could hang up an agent still
+// shutting down. A PID that now belongs to some other process also counts as
+// exited.
 func agentGone(a registry.Agent) bool {
+	err := syscall.Kill(a.PID, 0)
+	if errors.Is(err, syscall.ESRCH) {
+		return true
+	}
+	if err != nil {
+		return false
+	}
 	procs, err := locate.Snapshot([]int{a.PID})
 	if err != nil {
 		return false
 	}
 	p, ok := procs[a.PID]
-	return !ok || !registry.SameProcess(a, p.Start)
+	return ok && !registry.SameProcess(a, p.Start)
 }
 
 // sweepReport is what a sweep did, for the notice line.
@@ -104,16 +145,22 @@ func (s sweeper) run(targets []appui.Target) sweepReport {
 	type stopped struct {
 		agent registry.Agent
 		loc   target.Location
+		why   string // why the session is still open, if it stays that way
 	}
 	var pending []stopped
 	for _, t := range targets {
-		a, ok := s.sweepable(t.PID, t.SessionID)
+		r, ok := s.sweepable(t.PID, t.SessionID)
+		a := r.Agent
 		if !ok {
 			name := a.Name
 			if name == "" {
 				name = fmt.Sprintf("pid %d", t.PID)
 			}
 			rep.skipped = append(rep.skipped, name+" (no longer done)")
+			continue
+		}
+		if err := s.recheck(r); err != nil {
+			rep.skipped = append(rep.skipped, a.Name+" ("+err.Error()+")")
 			continue
 		}
 		dirty, err := s.dirty(a.Cwd)
@@ -132,26 +179,52 @@ func (s sweeper) run(targets []appui.Target) sweepReport {
 		}
 		rep.stopped = append(rep.stopped, a.Name)
 		if len(loc.CloseCommands) > 0 {
-			pending = append(pending, stopped{a, loc})
+			pending = append(pending, stopped{agent: a, loc: loc, why: "still running"})
 		}
 	}
 
 	// One deadline for the lot, not one per agent: they were all
-	// signalled together and exit in parallel.
+	// signalled together and exit in parallel. A session is closed once
+	// its agent has exited and nothing but the shell is left on its
+	// terminal; the closes run side by side, so one that iTerm stalls on
+	// does not hold up the rest.
+	var mu sync.Mutex
 	deadline := time.Now().Add(s.wait)
 	for len(pending) > 0 {
-		var still []stopped
+		var still, ready []stopped
 		for _, p := range pending {
 			if !s.gone(p.agent) {
+				p.why = "still running"
 				still = append(still, p)
 				continue
 			}
-			if err := s.close(p.loc); err != nil {
-				rep.failed = append(rep.failed, p.agent.Name+": "+err.Error())
-				continue
+			quiet, err := s.quiet(p.loc)
+			switch {
+			case err != nil:
+				rep.failed = append(rep.failed, p.agent.Name+": could not check its terminal, session left open")
+			case !quiet:
+				p.why = "other processes on its terminal"
+				still = append(still, p)
+			default:
+				ready = append(ready, p)
 			}
-			rep.closed++
 		}
+		var wg sync.WaitGroup
+		for _, p := range ready {
+			wg.Add(1)
+			go func(p stopped) {
+				defer wg.Done()
+				err := s.close(p.loc)
+				mu.Lock()
+				defer mu.Unlock()
+				if err != nil {
+					rep.failed = append(rep.failed, p.agent.Name+": "+err.Error())
+					return
+				}
+				rep.closed++
+			}(p)
+		}
+		wg.Wait()
 		pending = still
 		if len(pending) == 0 || !time.Now().Before(deadline) {
 			break
@@ -159,7 +232,7 @@ func (s sweeper) run(targets []appui.Target) sweepReport {
 		time.Sleep(s.poll)
 	}
 	for _, p := range pending {
-		rep.failed = append(rep.failed, p.agent.Name+": still running, session left open")
+		rep.failed = append(rep.failed, p.agent.Name+": "+p.why+", session left open")
 	}
 	return rep
 }

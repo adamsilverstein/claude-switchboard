@@ -294,20 +294,21 @@ func (c *Controller) Find(pid int, session string) (registry.Agent, bool) {
 	return registry.Agent{}, false
 }
 
-// Sweepable returns the agent a sweep command refers to, but only while its
-// row still reads as done. The page asked about the rows it was showing, and
-// in the seconds since, a merged branch can have been checked out to new work
+// Sweepable returns the row a sweep command refers to, but only while it
+// still reads as done. The page asked about the rows it was showing, and in
+// the seconds since, a merged branch can have been checked out to new work
 // or the agent can have picked up a prompt; neither should be stopped on the
-// strength of a list that has gone stale.
-func (c *Controller) Sweepable(pid int, session string) (registry.Agent, bool) {
+// strength of a list that has gone stale. Nothing is sweepable while the last
+// poll failed, since the rows held then are older than they look.
+func (c *Controller) Sweepable(pid int, session string) (ui.Row, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	for _, r := range c.rows {
 		if r.Agent.PID == pid && r.Agent.SessionID == session {
-			return r.Agent, r.Done()
+			return r, c.err == nil && r.Done()
 		}
 	}
-	return registry.Agent{}, false
+	return ui.Row{}, false
 }
 
 // OpenableURL reports whether a URL from the page may be handed to the

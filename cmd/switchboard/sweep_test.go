@@ -3,12 +3,14 @@ package main
 import (
 	"errors"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/adamsilverstein/claude-switchboard/internal/appui"
 	"github.com/adamsilverstein/claude-switchboard/internal/registry"
 	"github.com/adamsilverstein/claude-switchboard/internal/target"
+	"github.com/adamsilverstein/claude-switchboard/internal/ui"
 )
 
 // fakeSweep records what a sweep did to the machine instead of doing it.
@@ -16,19 +18,29 @@ type fakeSweep struct {
 	agents  map[int]registry.Agent
 	done    map[int]bool
 	dirty   map[string]bool
+	stale   map[int]string // what a fresh look finds changed
 	stopped []int
 	closed  []int
 	exits   bool // whether stopped agents exit
+	busyTTY bool // whether something besides the shell stays on the terminal
+
+	mu sync.Mutex // closes run concurrently
 }
 
 func (f *fakeSweep) sweeper() sweeper {
 	return sweeper{
-		sweepable: func(pid int, session string) (registry.Agent, bool) {
+		sweepable: func(pid int, session string) (ui.Row, bool) {
 			a, ok := f.agents[pid]
 			if !ok || a.SessionID != session {
-				return registry.Agent{}, false
+				return ui.Row{}, false
 			}
-			return a, f.done[pid]
+			return ui.Row{Agent: a}, f.done[pid]
+		},
+		recheck: func(r ui.Row) error {
+			if why := f.stale[r.Agent.PID]; why != "" {
+				return errors.New(why)
+			}
+			return nil
 		},
 		dirty: func(cwd string) (bool, error) {
 			if cwd == "/broken" {
@@ -47,8 +59,11 @@ func (f *fakeSweep) sweeper() sweeper {
 			f.stopped = append(f.stopped, a.PID)
 			return nil
 		},
-		gone: func(a registry.Agent) bool { return f.exits },
+		gone:  func(a registry.Agent) bool { return f.exits },
+		quiet: func(target.Location) (bool, error) { return !f.busyTTY, nil },
 		close: func(loc target.Location) error {
+			f.mu.Lock()
+			defer f.mu.Unlock()
 			for pid, a := range f.agents {
 				if loc.CloseCommands[0].Args[0] == a.SessionID {
 					f.closed = append(f.closed, pid)
@@ -122,6 +137,33 @@ func TestSweepLeavesASessionOpenWhileItsAgentRuns(t *testing.T) {
 		t.Errorf("closed %v while the agent was still running", f.closed)
 	}
 	if !strings.Contains(rep.String(), "still running, session left open") {
+		t.Errorf("report %q does not say the session was left open", rep.String())
+	}
+}
+
+// A fresh look right before stopping overrules the row the page swept from.
+func TestSweepSkipsAnAgentThatChangedSinceThePoll(t *testing.T) {
+	f := sweepFixture()
+	f.stale = map[int]string{1: "branch changed"}
+	rep := f.sweeper().run(targets(1))
+	if len(f.stopped) != 0 {
+		t.Errorf("stopped %v after the branch changed", f.stopped)
+	}
+	if !strings.Contains(rep.String(), "merged (branch changed)") {
+		t.Errorf("report %q does not say why it skipped", rep.String())
+	}
+}
+
+// A pane can be shared: something else left running on the terminal after
+// the agent exits keeps the session open.
+func TestSweepLeavesASharedTerminalOpen(t *testing.T) {
+	f := sweepFixture()
+	f.busyTTY = true
+	rep := f.sweeper().run(targets(1))
+	if len(f.closed) != 0 {
+		t.Errorf("closed %v with other processes on the terminal", f.closed)
+	}
+	if !strings.Contains(rep.String(), "other processes on its terminal, session left open") {
 		t.Errorf("report %q does not say the session was left open", rep.String())
 	}
 }
