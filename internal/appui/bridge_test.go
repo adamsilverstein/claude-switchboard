@@ -76,6 +76,17 @@ func TestHandleAppliesEveryCommandThePageSends(t *testing.T) {
 	if act.Kind != "stop" || act.PID != 2 || act.SessionID != "s2" {
 		t.Errorf("stop = %+v, want {stop 2 s2}", act)
 	}
+	act = c.Handle(`{"cmd":"peek","pid":1,"sessionId":"s1"}`)
+	if act.Kind != "peek" || act.PID != 1 || act.SessionID != "s1" {
+		t.Errorf("peek = %+v, want {peek 1 s1}", act)
+	}
+	act = c.Handle(`{"cmd":"reply","pid":1,"sessionId":"s1","text":"go with option 1"}`)
+	if act.Kind != "reply" || act.PID != 1 || act.SessionID != "s1" || act.Text != "go with option 1" {
+		t.Errorf("reply = %+v, want {reply 1 s1 \"go with option 1\"}", act)
+	}
+	if act := c.Handle(`{"cmd":"reply","pid":1,"sessionId":"s1","text":"   "}`); act.Kind != "" {
+		t.Errorf("an empty reply = %+v; want it dropped", act)
+	}
 	if act := c.Handle(`{"cmd":"quit"}`); act.Kind != "quit" {
 		t.Errorf("quit = %+v", act)
 	}

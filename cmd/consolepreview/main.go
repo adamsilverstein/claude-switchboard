@@ -48,6 +48,9 @@ func main() {
 			Value  string        `json:"value"`
 			Rows   int           `json:"rows"`
 			Widths appui.Columns `json:"widths"`
+			PID    int           `json:"pid"`
+			SID    string        `json:"sessionId"`
+			Text   string        `json:"text"`
 		}
 		_ = json.NewDecoder(r.Body).Decode(&m)
 		switch m.Cmd {
@@ -64,8 +67,22 @@ func main() {
 		case "columns":
 			c.SetColumns(m.Widths)
 		}
+		res := struct {
+			Snapshot appui.Snapshot  `json:"snapshot"`
+			Peek     *appui.PeekView `json:"peek,omitempty"`
+			Replied  *bool           `json:"replied,omitempty"`
+		}{Snapshot: c.Snapshot(time.Now())}
+		switch m.Cmd {
+		case "peek":
+			v := appui.PeekView{PID: m.PID, SessionID: m.SID, Asked: sampleAsked, Reply: sampleReply + replies[m.SID]}
+			res.Peek = &v
+		case "reply":
+			replies[m.SID] += "\n\n(you replied: " + m.Text + ")"
+			ok := true
+			res.Replied = &ok
+		}
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(c.Snapshot(time.Now()))
+		_ = json.NewEncoder(w).Encode(res)
 	})
 
 	log.Printf("console preview on http://%s (%d agents)", *addr, *n)
@@ -80,11 +97,29 @@ func main() {
 // stopped announcing - which is exactly what it did hide once.
 const bridge = `<script>
 async function cmd(json) {
-  const res = await fetch("/cmd", { method: "POST", body: json });
-  window.__snapshot(JSON.stringify(await res.json()));
+  const res = await (await fetch("/cmd", { method: "POST", body: json })).json();
+  window.__snapshot(JSON.stringify(res.snapshot));
+  if (res.peek) window.__peek(JSON.stringify(res.peek));
+  if (res.replied !== undefined) {
+    const m = JSON.parse(json);
+    window.__notice("sent", false);
+    window.__replied(m.pid, m.sessionId, res.replied);
+  }
 }
 </script>
 `
+
+// The peek panel's sample exchange: a question with a list and some code in
+// it, which is what the panel is mostly for.
+const sampleAsked = "Can you rerun the failing e2e spec and report back?"
+
+const sampleReply = "Rerunning `upload.spec.ts` now.\n\n" +
+	"## Result\n\nThe spec fails on the **second** upload. Two options:\n" +
+	"1. await the upload promise before asserting\n2. bump the timeout, which only hides the race\n\n" +
+	"```ts\nawait page.waitForResponse( /media/ );\n```\n\nWhich would you like?"
+
+// replies is what the preview pretends each agent has been sent.
+var replies = map[string]string{}
 
 // The fixture is deliberately awkward. A tidy one hid a real bug once: every
 // fabricated name happened to fit its column, so a name that did not clip

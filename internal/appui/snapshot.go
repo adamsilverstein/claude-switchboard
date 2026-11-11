@@ -140,6 +140,10 @@ type AgentView struct {
 	Tmux      string `json:"tmux,omitempty"`
 	Focusable bool   `json:"focusable"`
 
+	// ReplyBlocked says why the peek panel will not send a reply to this
+	// agent, and is empty when it will. See ui.ReplyBlocked.
+	ReplyBlocked string `json:"replyBlocked,omitempty"`
+
 	// Usage is what the session has spent, from the statusline shim.
 	// Nil when the shim is not installed for it.
 	Usage *UsageView `json:"usage"`
@@ -151,6 +155,19 @@ type AgentView struct {
 	Subagents        []SubagentView `json:"subagents,omitempty"`
 	SubagentsTotal   int            `json:"subagentsTotal"`
 	SubagentsWorking int            `json:"subagentsWorking"`
+}
+
+// PeekView is the peek panel's content for one agent: the last exchange of
+// its conversation. It travels on its own rather than in every Snapshot,
+// because it can run to tens of kilobytes and only one agent is ever peeked
+// at.
+type PeekView struct {
+	PID       int    `json:"pid"`
+	SessionID string `json:"sessionId"`
+	Asked     string `json:"asked,omitempty"`
+	Reply     string `json:"reply,omitempty"`
+	Truncated bool   `json:"truncated"`
+	Error     string `json:"error,omitempty"`
 }
 
 // SubagentView is one spawned agent, formatted. It carries nothing that
@@ -216,6 +233,7 @@ func view(now time.Time, r ui.Row) AgentView {
 		RefState:       t.Ref.State,
 		RefTitle:       t.Ref.Title,
 		RefURL:         t.Ref.URL,
+		ReplyBlocked:   ui.ReplyBlocked(r.Agent),
 	}
 	if t.ContextWindow > 0 {
 		v.ContextWindow = FormatTokens(t.ContextWindow)

@@ -308,13 +308,15 @@ type Action struct {
 	// new frame now, rather than waiting up to a second for the poll.
 	Repaint bool
 
-	// Kind is "focus", "stop", "open", "quit", or "" when the command
-	// was fully handled here. Focus and stop carry the agent they refer
-	// to; open carries the URL.
+	// Kind is "focus", "stop", "peek", "reply", "open", "quit", or ""
+	// when the command was fully handled here. Focus, stop, peek and
+	// reply carry the agent they refer to; reply also carries its text,
+	// and open carries the URL.
 	Kind      string
 	PID       int
 	SessionID string
 	URL       string
+	Text      string
 }
 
 // Handle applies one command from the page.
@@ -340,6 +342,7 @@ func (c *Controller) Handle(raw string) Action {
 		PID       int     `json:"pid"`
 		SessionID string  `json:"sessionId"`
 		URL       string  `json:"url"`
+		Text      string  `json:"text"`
 	}
 	if err := json.Unmarshal([]byte(raw), &m); err != nil {
 		return Action{}
@@ -363,8 +366,15 @@ func (c *Controller) Handle(raw string) Action {
 		// pushing a frame back would only redraw the rows underneath.
 		c.SetColumns(m.Widths)
 		return Action{}
-	case "focus", "stop":
+	case "focus", "stop", "peek":
 		return Action{Kind: m.Cmd, PID: m.PID, SessionID: m.SessionID}
+	case "reply":
+		// The text is checked again, properly, right before it is
+		// typed. This only keeps an empty send from going anywhere.
+		if strings.TrimSpace(m.Text) == "" {
+			return Action{}
+		}
+		return Action{Kind: "reply", PID: m.PID, SessionID: m.SessionID, Text: m.Text}
 	case "open":
 		// Only a URL this build produced can be opened. Every one of
 		// them came back from `gh` as a github.com link, so anything

@@ -88,6 +88,26 @@ func runApp(args []string) error {
 		})
 	}
 
+	showPeek := func(v appui.PeekView) {
+		raw, err := json.Marshal(v)
+		if err != nil {
+			return
+		}
+		arg, err := json.Marshal(string(raw))
+		if err != nil {
+			return
+		}
+		dispatch(func() { w.Eval("window.__peek && window.__peek(" + string(arg) + ")") })
+	}
+
+	// replied tells the page whether its reply went, so it can clear the
+	// input on success and keep the text to retry on failure.
+	replied := func(act appui.Action, ok bool) {
+		dispatch(func() {
+			w.Eval(fmt.Sprintf("window.__replied && window.__replied(%d, %q, %t)", act.PID, act.SessionID, ok))
+		})
+	}
+
 	if err := w.Bind("cmd", func(raw string) {
 		switch act := control.Handle(raw); act.Kind {
 		case "":
@@ -101,6 +121,13 @@ func runApp(args []string) error {
 			}
 		case "quit":
 			w.Dispatch(w.Terminate)
+		case "reply":
+			// Typing runs AppleScript, with a pause before the
+			// return; off the UI thread like focus.
+			go replyApp(control, act, notice, replied)
+		case "peek":
+			// A transcript read of up to 256KB; off the UI thread.
+			go peekApp(control, src.projectsDir, act, showPeek)
 		case "open":
 			// `open` hands the URL to the default browser and
 			// returns immediately, but it is still a subprocess.
@@ -169,6 +196,42 @@ func openURL(url string, notice func(string, bool)) {
 		return
 	}
 	notice("opened "+url, false)
+}
+
+// peekApp reads the last exchange of the agent the page asked about and
+// sends it back. The page drops an answer for an agent it has stopped
+// peeking at, so a slow read cannot paint over a newer one.
+func peekApp(control *appui.Controller, projectsDir string, act appui.Action, show func(appui.PeekView)) {
+	v := appui.PeekView{PID: act.PID, SessionID: act.SessionID}
+	agent, ok := control.Find(act.PID, act.SessionID)
+	if !ok {
+		v.Error = "agent is gone"
+		show(v)
+		return
+	}
+	ex, err := peekAgent(projectsDir, agent)
+	if err != nil {
+		v.Error = err.Error()
+	}
+	v.Asked, v.Reply, v.Truncated = ex.Asked, ex.Reply, ex.Truncated
+	show(v)
+}
+
+// replyApp types a reply from the peek panel into the agent's terminal.
+func replyApp(control *appui.Controller, act appui.Action, notice func(string, bool), replied func(appui.Action, bool)) {
+	agent, ok := control.Find(act.PID, act.SessionID)
+	if !ok {
+		notice("agent is gone; not sending", true)
+		replied(act, false)
+		return
+	}
+	if err := replyAgent(agent, act.Text); err != nil {
+		notice("reply failed: "+err.Error(), true)
+		replied(act, false)
+		return
+	}
+	notice("sent to "+agent.Name, false)
+	replied(act, true)
 }
 
 func perform(control *appui.Controller, act appui.Action, notice func(string, bool)) {
