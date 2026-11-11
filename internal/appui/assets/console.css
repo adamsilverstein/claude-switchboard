@@ -1,43 +1,59 @@
 /* Console - the app window's layout.
  *
- * A hairline-ruled technical drawing: steel blue on a light ground, nothing
+ * A hairline-ruled technical drawing: steel blue on a quiet ground, nothing
  * rounded, no shadows. Colour never carries meaning on its own; the status
- * word is always present beside the dot.
+ * word, or in grouped view the band above the row, is always there beside
+ * the dot.
  *
- * Every colour here is measured against the three grounds it can sit on
- * (--ground, --panel, --band). Text tokens clear 4.5:1 on all three;
- * --accent is only ever used for graphics, which need 3:1, and --accent-ink
- * is its darker twin for any surface carrying text.
+ * Every colour here is measured against the grounds it can sit on (--ground,
+ * --panel, --band, --thead, --select), in both appearances. Text tokens clear
+ * 4.5:1 on all of them; --accent is only ever used for graphics, which need
+ * 3:1, and --accent-ink is its twin for any text set in the accent.
+ *
+ * Type is one scale - 11, 12, 13 and 15 - in three roles: Barlow Condensed
+ * for section labels, the only thing set in capitals; Barlow for words; and
+ * JetBrains Mono for numbers, paths and anything copied out of a terminal.
  */
 
 :root {
+  color-scheme: light;
+
   --ground: #f2f2f3;
   --panel: #ebecee;
   --band: #e4e6e9;
   --thead: #e9eaec;
+  --select: #dfe7ef;      /* the selected row: a tint, so its status colour survives */
+  --field: #ffffff;       /* the filter box */
+  --menu: #f8f8f9;        /* menus and the shortcut sheet */
 
   --text: #1d1f20;
   --secondary: #43474b;
-  --muted: #63686c;
+  --muted: #5f6468;
 
   --rule-frame: #b3b7bb;
   --rule-row: #d5d7da;
   --rule-compact: #e0e2e5;
   --chrome-border: #c3c6c9;
 
-  --accent: #5980a6;      /* bars, focus ring, non-text graphics only */
-  --accent-ink: #486888;  /* any accent surface carrying text */
+  --accent: #5980a6;        /* bars, focus ring, selection edge: graphics only */
+  --accent-ink: #486888;    /* accent text, and the primary button's fill */
+  --accent-strong: #3a5673; /* the primary button under the pointer */
+  --on-accent: #ffffff;     /* text on --accent-ink */
   --track: #dfe1e3;
-  --on-accent-dim: #dfe8f1;
 
-  --busy: #397339;
-  --idle: #816318;
+  --busy: #387038;
+  --idle: #7a5d14;
   --alert: #a34b40;       /* waiting, and any bar past its threshold */
-  --dead: #63686c;
+  --dead: #5f6468;
 
   --cond: "Barlow Condensed", "Helvetica Neue", sans-serif;
   --sans: Barlow, -apple-system, "Helvetica Neue", sans-serif;
   --mono: "JetBrains Mono", "SF Mono", Menlo, monospace;
+
+  --fs-1: 11px;
+  --fs-2: 12px;
+  --fs-3: 13px;
+  --fs-4: 15px;
 
   --sidebar: 226px;
   /* How much height the expanded readout takes. The page reads this to
@@ -48,7 +64,7 @@
   --readout-h: 340px;
   --row-pad: 12px;
   --col-gap: 12px;
-  --name-size: 13.5px;
+  --name-size: 13px;
   --bar-w: 46px;
 
   /* One variable per column the table can resize, so a drag on a header
@@ -79,6 +95,43 @@
   --col-summary: minmax(0, 1.25fr);
 }
 
+/* The dark appearance follows the system, which is what the terminals this
+ * window sits beside do. Only colours change; every rule below is written
+ * against the tokens, so nothing else needs a dark variant. */
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+
+    --ground: #17191b;
+    --panel: #1f2225;
+    --band: #25292c;
+    --thead: #1c1f22;
+    --select: #233140;
+    --field: #0f1112;
+    --menu: #222629;
+
+    --text: #e5e7e9;
+    --secondary: #c2c7cc;
+    --muted: #9ba2a8;
+
+    --rule-frame: #474d53;
+    --rule-row: #2f3438;
+    --rule-compact: #292d31;
+    --chrome-border: #42484d;
+
+    --accent: #6b97c2;
+    --accent-ink: #8fb4d9;
+    --accent-strong: #aac8e6;
+    --on-accent: #10161c;
+    --track: #33393e;
+
+    --busy: #78c47c;
+    --idle: #d6ad4c;
+    --alert: #f0907f;
+    --dead: #9ba2a8;
+  }
+}
+
 * { box-sizing: border-box; }
 
 /* Several blocks here set display, which would otherwise beat the browser's
@@ -91,7 +144,7 @@ html, body {
   background: var(--ground);
   color: var(--text);
   font-family: var(--sans);
-  font-size: 13px;
+  font-size: var(--fs-3);
   -webkit-font-smoothing: antialiased;
   overflow: hidden;
   cursor: default;
@@ -101,17 +154,45 @@ html, body {
 
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
+button { font: inherit; color: inherit; }
+
+/* The one thing in capitals. Section labels name a region of the window;
+ * everything inside a region is set in sentence case so the names in it
+ * read as names rather than as more headings. */
 .label {
   font-family: var(--cond);
-  font-size: 11.5px;
+  font-size: var(--fs-1);
   font-weight: 600;
-  letter-spacing: 0.2em;
+  letter-spacing: 0.16em;
   text-transform: uppercase;
   color: var(--muted);
 }
 .mono { font-family: var(--mono); }
 .dim { color: var(--muted); }
 .ellipsis { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Visible to a screen reader, not to the eye: the meters' reset times are
+ * read out with the meter and shown on hover. */
+.sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+kbd {
+  display: inline-block;
+  min-width: 20px;
+  padding: 1px 6px;
+  border: 1px solid var(--rule-frame);
+  font-family: var(--mono);
+  font-size: var(--fs-1);
+  line-height: 16px;
+  text-align: center;
+  color: var(--text);
+}
 
 /* ---------------------------------------------------------------- shell */
 
@@ -126,67 +207,69 @@ html, body {
 #sidebar {
   display: flex;
   flex-direction: column;
-  gap: 24px;
-  padding: 20px 20px 18px;
+  gap: 22px;
+  padding: 20px 18px 16px;
   border-right: 1px solid var(--chrome-border);
   overflow-y: auto;
 }
 #sidebar.hidden { display: none; }
 #app.no-sidebar { grid-template-columns: 1fr; }
 
-#brand { display: flex; flex-direction: column; gap: 2px; }
+#brand { display: flex; flex-direction: column; gap: 3px; }
 #brand b {
+  text-transform: uppercase;
   font-family: var(--cond);
   font-weight: 700;
-  font-size: 26px;
-  letter-spacing: 0.03em;
+  font-size: var(--fs-4);
+  letter-spacing: 0.18em;
   line-height: 1;
 }
-#tally {
-  font-family: var(--cond);
-  font-size: 13px;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-  color: var(--accent-ink);
-}
+#tally { font-size: var(--fs-2); color: var(--secondary); }
 #tally.alert { color: var(--alert); }
 
-.block { display: flex; flex-direction: column; gap: 8px; }
+.block { display: flex; flex-direction: column; gap: 6px; }
 
-#queue { display: flex; flex-direction: column; border: 1px solid var(--chrome-border); }
+/* The queues share the selection look the rows have: a tint and an accent
+ * edge, rather than a block of solid colour. */
+#queue { display: flex; flex-direction: column; margin: 0 -8px; }
 #queue button {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 7px 10px;
+  padding: 5px 8px;
   border: 0;
-  border-top: 1px solid var(--rule-row);
   background: none;
-  font-family: var(--cond);
-  font-size: 15px;
-  letter-spacing: 0.09em;
-  text-transform: uppercase;
+  font-size: var(--fs-3);
   color: var(--secondary);
   text-align: left;
 }
-#queue button:first-child { border-top: 0; }
-#queue button > span { font-family: var(--mono); font-size: 11.5px; letter-spacing: 0; color: var(--muted); }
-#queue button[aria-selected="true"] { background: var(--accent-ink); color: #fff; font-weight: 600; }
-#queue button[aria-selected="true"] > span { color: #fff; }
+#queue button > span { font-family: var(--mono); font-size: var(--fs-1); color: var(--muted); }
+#queue button:hover { background: var(--panel); color: var(--text); }
+#queue button:active { background: var(--band); }
+#queue button[aria-selected="true"] {
+  background: var(--select);
+  box-shadow: inset 3px 0 0 var(--accent);
+  color: var(--text);
+  font-weight: 600;
+}
 
 .facet {
   display: flex;
   align-items: baseline;
   gap: 8px;
-  padding: 0;
+  margin: 0 -8px;
+  padding: 2px 8px;
   border: 0;
   background: none;
   font-family: var(--mono);
-  font-size: 11.5px;
+  font-size: var(--fs-1);
   color: var(--secondary);
   text-align: left;
   overflow: hidden;
 }
+.facet:hover { background: var(--panel); color: var(--text); }
+.facet:active { background: var(--band); }
+#repolist, #modellist { gap: 0; }
 /* Three parts, and only the count keeps its width. Branch names run long -
  * "add-notes-emoji-reactions-try-additional-comment-type" is a real one - so
  * the branch gives way first, then the repository name, and the count is
@@ -201,25 +284,33 @@ html, body {
 .facet > b { flex: 0 1 auto; font-weight: inherit; }
 .facet > i { flex: 0 2 auto; font-style: normal; color: var(--muted); }
 .facet > span { margin-left: auto; padding-left: 8px; color: var(--muted); flex: none; white-space: nowrap; }
-.facet[aria-pressed="true"] { color: var(--accent-ink); font-weight: 500; }
+.facet[aria-pressed="true"] { background: var(--select); box-shadow: inset 3px 0 0 var(--accent); color: var(--text); font-weight: 500; }
 
-/* The windows stack into one panel rather than three floating boxes: they
- * are three readings of the same thing, and three separate frames with the
- * sidebar's 24px between them would claim otherwise - as well as costing
- * enough height to push the list's own controls off a short screen. */
-#usage, #codexusage { display: flex; flex-direction: column; }
-.meter { display: flex; flex-direction: column; gap: 9px; padding: 12px; border: 1px solid var(--rule-frame); }
-/* Joined to a shown meter above it, not merely the next one: a hidden
- * first meter would otherwise take the second's top edge with it. */
-.meter:not([hidden]) ~ .meter { border-top: 0; }
-.meter .big { display: flex; align-items: baseline; gap: 8px; }
-.meter .big b { font-family: var(--cond); font-weight: 700; font-size: 30px; line-height: 1; }
-.meter .big span, .meter > .note { font-family: var(--mono); font-size: 10.5px; color: var(--muted); }
+/* One line per window: what it is, how full, and how much. When it resets
+ * is on hover and read out with the meter - it is the detail, the percent
+ * is the reading. They stack as one panel because they are readings of the
+ * same thing, and because five framed boxes with Codex reporting too pushed
+ * the queue and repository filters off a short screen. */
+#usage, #codexusage { display: flex; flex-direction: column; gap: 4px; }
+.meter {
+  display: grid;
+  grid-template-columns: 76px minmax(24px, 1fr) 34px;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 0;
+}
+.meter > .label { font-family: var(--sans); font-size: var(--fs-2); font-weight: 400; letter-spacing: 0; text-transform: none; color: var(--secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.meter .big { order: 3; text-align: right; }
+.meter .big b { font-family: var(--mono); font-size: var(--fs-1); font-weight: 500; color: var(--text); }
+.meter .big span { display: none; }
+.meter .bar { order: 2; height: 6px; }
+.meter:hover > .label { color: var(--text); }
 
 .bar { display: flex; gap: 1px; height: 8px; }
 .bar i { display: block; background: var(--accent); }
 .bar u { display: block; background: var(--track); }
 .bar.over i { background: var(--alert); }
+.meter .bar.over + .big b, .meter:has(.bar.over) .big b { color: var(--alert); }
 
 /* The day's spend. Framed like the meters it sits under, since it reads
  * against them, but one panel: the breakdowns are parts of the one total. */
@@ -245,48 +336,50 @@ html, body {
 
 /* The stand-in for the meters on a machine with no shim. It is deliberately
  * quiet - this is a suggestion, not a warning - but the command itself is
- * set in the frame the meters would have had, so it reads as the thing that
- * belongs in that space. */
+ * set in a frame, so it reads as the thing that belongs in that space. */
 #usagehint p {
   margin: 0;
-  font-family: var(--mono);
-  font-size: 10.5px;
+  font-size: var(--fs-2);
   line-height: 1.5;
   color: var(--muted);
 }
 #usagehint code {
-  padding: 8px 10px;
+  padding: 7px 9px;
   border: 1px solid var(--rule-frame);
   font-family: var(--mono);
-  font-size: 10.5px;
+  font-size: var(--fs-1);
   color: var(--secondary);
   user-select: all;
   overflow-x: auto;
 }
 #usagehint code span { white-space: nowrap; }
 
-#polled { margin-top: auto; font-family: var(--mono); font-size: 10.5px; color: var(--muted); }
+#polled { margin-top: auto; font-family: var(--mono); font-size: var(--fs-1); color: var(--muted); }
 
 /* ----------------------------------------------------------------- main */
 
-#main { display: flex; flex-direction: column; padding: 20px 24px 18px; min-width: 0; overflow: hidden; }
+#main { display: flex; flex-direction: column; padding: 18px 24px 16px; min-width: 0; overflow: hidden; }
 
-#toolbar { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 10px 16px; margin-bottom: 16px; }
+#toolbar { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
 
 #filter {
   display: flex;
   align-items: center;
+  flex: 1 1 auto;
   gap: 10px;
-  padding: 5px 11px;
-  min-width: 300px;
+  max-width: 560px;
+  padding: 5px 10px;
   border: 1px solid var(--chrome-border);
-  background: #fff;
+  background: var(--field);
   font-family: var(--mono);
-  font-size: 12.5px;
+  font-size: var(--fs-2);
 }
+#filter:hover { border-color: var(--rule-frame); }
+#filter:focus-within { border-color: var(--accent); }
 #filter b { color: var(--accent-ink); font-weight: 400; }
 #filter input {
   flex: 1;
+  min-width: 0;
   border: 0;
   outline: 0;
   background: none;
@@ -297,20 +390,32 @@ html, body {
 }
 #filter input::placeholder { color: var(--muted); }
 
-#controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-family: var(--cond); font-size: 13px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); }
-.segmented { display: inline-flex; border: 1px solid var(--chrome-border); }
-.segmented button {
-  padding: 4px 11px;
-  border: 0;
-  border-left: 1px solid var(--chrome-border);
+/* Ordinary buttons. Every one of them answers the pointer: a tint under it
+ * and a deeper one while it is held, so the window does not feel inert. */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border: 1px solid var(--chrome-border);
   background: none;
-  font: inherit;
-  letter-spacing: inherit;
-  text-transform: inherit;
+  font-size: var(--fs-3);
   color: var(--secondary);
+  white-space: nowrap;
 }
-.segmented button:first-child { border-left: 0; }
-.segmented button[aria-pressed="true"] { background: var(--accent-ink); color: #fff; font-weight: 600; }
+.btn:hover:not(:disabled) { background: var(--panel); color: var(--text); border-color: var(--rule-frame); }
+.btn:active:not(:disabled), .btn[aria-expanded="true"] { background: var(--band); color: var(--text); }
+.btn:disabled { color: var(--muted); border-color: var(--rule-row); }
+.btn.primary { border-color: var(--accent-ink); background: var(--accent-ink); color: var(--on-accent); font-weight: 600; }
+.btn.primary:hover:not(:disabled) { border-color: var(--accent-strong); background: var(--accent-strong); color: var(--on-accent); }
+.btn.primary:active:not(:disabled) { box-shadow: inset 0 0 0 1px var(--on-accent); }
+.btn.primary:disabled { background: none; border-color: var(--rule-row); color: var(--muted); font-weight: 400; }
+.btn.danger { color: var(--alert); }
+.btn.danger:hover:not(:disabled) { color: var(--alert); border-color: var(--alert); }
+.btn .key { font-family: var(--mono); font-size: var(--fs-1); opacity: 0.8; }
+.btn .caret { font-size: 9px; color: var(--muted); }
+
+#viewBtn { margin-left: auto; }
 
 /* ----------------------------------------------------------------- list */
 
@@ -336,15 +441,20 @@ html, body {
   border-bottom: 1px solid var(--rule-frame);
   background: var(--thead);
   font-family: var(--cond);
-  font-size: 11.5px;
+  font-size: var(--fs-1);
   font-weight: 600;
-  letter-spacing: 0.18em;
+  letter-spacing: 0.16em;
   text-transform: uppercase;
   color: var(--muted);
   flex: none;
 }
 #head button { border: 0; background: none; font: inherit; letter-spacing: inherit; text-transform: inherit; color: inherit; padding: 0; text-align: left; }
+#head button:hover { color: var(--text); }
+#head button:active { color: var(--accent-ink); }
+/* Sorting lives on the headers, and the one the list is sorted by says so
+ * with an arrow as well as its colour. */
 #head button[aria-sort] { color: var(--accent-ink); }
+#head button[aria-sort]::after { content: " \2193"; letter-spacing: 0; }
 
 /* --------------------------------------------------------- resize grips */
 
@@ -383,11 +493,6 @@ html, body {
  * declared on the whole page or it reverts the moment it leaves the grip. */
 body.resizing { cursor: col-resize; user-select: none; }
 
-/* A column that is not on screen has no boundary to drag. The rules that
- * take a column away are below, beside the widths they override. */
-.no-context #head [data-col="context"] .grip,
-.no-ref #head [data-col="ref"] .grip { display: none; }
-
 /* position, load-bearing: scrollCursorIntoView measures a row's offsetTop
  * against this box's scrollTop, and offsetTop is measured from the nearest
  * positioned ancestor. Without this it is measured from the body, and every
@@ -403,22 +508,23 @@ body.resizing { cursor: col-resize; user-select: none; }
   border-bottom: 1px solid var(--rule-row);
   background: var(--band);
   font-family: var(--cond);
-  font-size: 11.5px;
+  font-size: var(--fs-1);
   font-weight: 600;
-  letter-spacing: 0.18em;
+  letter-spacing: 0.16em;
   text-transform: uppercase;
   position: sticky;
   top: 0;
 }
-.band .hint { font-family: var(--mono); font-size: 10px; letter-spacing: 0; text-transform: none; color: var(--muted); }
+.band .hint { font-family: var(--sans); font-size: var(--fs-1); font-weight: 400; letter-spacing: 0; text-transform: none; color: var(--muted); }
+.band.toggle:hover .hint { color: var(--text); }
 
 .row { border-bottom: 1px solid var(--rule-row); }
 .row:last-child { border-bottom: 0; }
 .row:hover { background: var(--panel); }
 .row .dot { font-size: 14px; line-height: 1; }
-.row .status { font-family: var(--cond); font-size: 15px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; }
-.row .age, .row .repo { font-family: var(--mono); font-size: 11px; color: var(--secondary); }
-.row .age { font-size: 12px; color: var(--muted); }
+.row .status { font-size: var(--fs-3); font-weight: 500; }
+.row .age, .row .repo { font-family: var(--mono); font-size: var(--fs-1); color: var(--secondary); }
+.row .age { color: var(--muted); }
 /* The name and its subline are not grid items - they sit inside the name
  * cell - so nothing blockifies them, and text-overflow does nothing to an
  * inline box. That is why a long name ran straight over the context column
@@ -426,38 +532,26 @@ body.resizing { cursor: col-resize; user-select: none; }
 .row .name-cell { display: flex; flex-direction: column; min-width: 0; }
 .row .name-line { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
 .row .name { display: block; min-width: 0; font-size: var(--name-size); font-weight: 500; }
-/* How many subagents the session spawned. It never shrinks: the name gives
- * way first, because the name is also in the readout and the tag is not. */
-.row .agents {
+/* How many subagents the session spawned, and which CLI it is when it is not
+ * Claude Code. They never shrink: the name gives way first, because the name
+ * is also in the readout and the tags are not. */
+.row .agents, .row .tool {
   flex: none;
   padding: 0 5px;
   border: 1px solid var(--rule-frame);
   font-family: var(--mono);
-  font-size: 10px;
+  font-size: var(--fs-1);
   line-height: 15px;
   color: var(--muted);
 }
-/* Which CLI the session is, shown only when it is not Claude Code. Same
- * frame as the subagents tag, so the two read as one family of labels. */
-.row .tool {
-  flex: none;
-  padding: 0 5px;
-  border: 1px solid var(--rule-frame);
-  font-family: var(--mono);
-  font-size: 10px;
-  line-height: 15px;
-  color: var(--muted);
-}
-.row[aria-selected="true"] .tool { border-color: var(--on-accent-dim); color: var(--on-accent-dim); }
 .row .agents.working { border-color: var(--busy); color: var(--busy); }
-.row[aria-selected="true"] .agents { border-color: var(--on-accent-dim); color: var(--on-accent-dim); }
 .row[data-live="false"] .agents { display: none; }
-.row .sub { display: none; min-width: 0; font-family: var(--mono); font-size: 10.5px; color: var(--muted); }
+.row .sub { display: none; min-width: 0; font-family: var(--mono); font-size: var(--fs-1); color: var(--muted); }
 .row .ctx { display: flex; align-items: center; gap: 7px; }
-.row .ctx .bar { width: var(--bar-w); height: 7px; flex: none; }
-.row .ctx .pct { font-family: var(--mono); font-size: 11px; color: var(--muted); }
+.row .ctx .bar { width: var(--bar-w); height: 6px; flex: none; }
+.row .ctx .pct { font-family: var(--mono); font-size: var(--fs-1); color: var(--muted); }
 .row .ctx .pct.over { color: var(--alert); }
-.row .summary { font-size: 13px; color: var(--muted); }
+.row .summary { font-size: var(--fs-3); color: var(--muted); }
 
 /* Status lives in the dot and the word, never in the whole row. */
 .row[data-status="busy"] .dot, .row[data-status="busy"] .status { color: var(--busy); }
@@ -474,22 +568,18 @@ body.resizing { cursor: col-resize; user-select: none; }
 .row[data-live="false"] .repo,
 .row[data-live="false"] .summary { color: var(--dead); font-weight: 400; }
 
-.row[aria-selected="true"] { background: var(--accent-ink); }
-.row[aria-selected="true"],
-.row[aria-selected="true"] .name,
-.row[aria-selected="true"] .status,
-.row[aria-selected="true"] .dot,
-.row[aria-selected="true"] .age,
-.row[aria-selected="true"] .repo,
-.row[aria-selected="true"] .ctx .pct { color: #fff; }
-.row[aria-selected="true"] .summary, .row[aria-selected="true"] .sub { color: var(--on-accent-dim); }
-.row[aria-selected="true"] .bar i { background: #fff; }
-.row[aria-selected="true"] .bar u { background: rgba(255, 255, 255, 0.3); }
+/* Selected is a tint with an accent edge, not a block of solid colour, so
+ * the row being looked at keeps its status colour like every other row. */
+.row[aria-selected="true"] { background: var(--select); box-shadow: inset 3px 0 0 var(--accent); }
 .row[aria-selected="true"] .name { font-weight: 600; }
+.row[aria-selected="true"] .summary { color: var(--secondary); }
 
 /* Focusing takes a few hundred milliseconds of AppleScript. The row blinks
  * so the keypress is acknowledged before anything else happens. */
-.row.flash { background: var(--accent); }
+.row.flash { background: var(--band); box-shadow: inset 3px 0 0 var(--accent-ink), inset 0 0 0 1px var(--accent); }
+
+/* The row a context menu was opened on, while the menu is up. */
+.row.menu-target { box-shadow: inset 0 0 0 1px var(--accent); }
 
 /* The pull request or issue. The number reads as a link because it is one -
  * clicking it opens the pull request - and the state sits beside it in the
@@ -501,7 +591,7 @@ body.resizing { cursor: col-resize; user-select: none; }
   padding: 0;
   background: none;
   font-family: var(--mono);
-  font-size: 11.5px;
+  font-size: var(--fs-1);
   font-weight: 500;
   color: var(--accent-ink);
   cursor: pointer;
@@ -514,12 +604,8 @@ body.resizing { cursor: col-resize; user-select: none; }
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-family: var(--cond);
-  font-size: 10.5px;
+  font-size: var(--fs-1);
   font-style: normal;
-  font-weight: 600;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
   color: var(--muted);
 }
 /* The same meanings the list already assigns these colours: green is work
@@ -535,32 +621,28 @@ body.resizing { cursor: col-resize; user-select: none; }
 .row .ref .mark {
   flex: none;
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: var(--fs-1);
   font-style: normal;
   font-weight: 600;
 }
 .mark.m-alert { color: var(--alert); }
 /* Green and red checks are the two states read most often, so they get
- * the shapes people already know from GitHub: a white tick on a green
- * box, and a bold red cross. */
-.mark.m-fail { color: var(--alert); font-size: 13px; font-weight: 800; line-height: 1; }
+ * the shapes people already know from GitHub: a tick knocked out of a
+ * green box, and a bold red cross. */
+.mark.m-fail { color: var(--alert); font-size: var(--fs-3); font-weight: 800; line-height: 1; }
 .mark.m-pass {
   display: inline-block;
   padding: 0 3px;
   line-height: 1.35;
   background: var(--busy);
-  color: #fff;
+  color: var(--on-accent);
 }
 .mark.m-wait { color: var(--idle); }
 .mark.m-ok { color: var(--busy); }
 .mark.m-quiet { color: var(--muted); }
 .row[data-live="false"] .ref .num, .row[data-live="false"] .ref .state,
 .row[data-live="false"] .ref .mark { color: var(--dead); }
-.row[aria-selected="true"] .ref .num { color: #fff; }
-.row[aria-selected="true"] .ref .state,
-.row[aria-selected="true"] .ref .mark { color: var(--on-accent-dim); }
-.row[aria-selected="true"] .ref .mark.m-pass { color: #fff; }
-.row[data-live="false"] .ref .mark.m-pass { color: #fff; background: var(--dead); }
+.row[data-live="false"] .ref .mark.m-pass { color: var(--on-accent); background: var(--dead); }
 
 /* The readout repeats the number, so it gets the same affordance. */
 .cell .num {
@@ -568,7 +650,7 @@ body.resizing { cursor: col-resize; user-select: none; }
   padding: 0;
   background: none;
   font-family: var(--mono);
-  font-size: 12px;
+  font-size: var(--fs-2);
   color: var(--accent-ink);
   cursor: pointer;
 }
@@ -576,53 +658,77 @@ body.resizing { cursor: col-resize; user-select: none; }
 .cell .num:disabled { color: var(--secondary); cursor: default; }
 .cell .marks { display: flex; flex-wrap: wrap; gap: 4px 12px; }
 
-.no-context { --col-context: 0px; }
-.no-ref { --col-ref: 0px; }
+/* ------------------------------------------------- columns taken away */
+
+/* A column leaves the table for one of four reasons: nothing on this machine
+ * can fill it (.no-*), you hid it (.hide-*), grouping already says it (the
+ * status word under .grouped), or the window is too narrow (the media rules
+ * further down). Each zeroes the column's track on body rather than :root -
+ * a width you dragged is set inline on the root element, where it outranks
+ * any stylesheet rule there, so declaring the collapse one level closer to
+ * the table means a column taken off the screen cannot be dragged back
+ * onto it as an empty gap.
+ *
+ * In grouped view the band above the rows and the dot beside each carry the
+ * status, so the word would be saying it a third time. In the flat view it
+ * is the only word for it, which is why STATUS cannot be hidden by choice. */
+.grouped { --col-status: 0px; }
+.no-context, .hide-context { --col-context: 0px; }
+.no-ref, .hide-ref { --col-ref: 0px; }
+.hide-age { --col-age: 0px; }
+.hide-repo { --col-repo: 0px; }
+.hide-summary { --col-summary: 0px; }
+
 /* visibility, not display: a grid child that is display:none is not placed
  * at all, and every column after it slides one to the left. */
-.no-context .ctx,
-.no-context #head [data-sort="context"],
-.no-ref .ref,
-.no-ref #head .ref { visibility: hidden; overflow: hidden; }
-.no-context #sortKeys [data-sort="context"] { display: none; }
+.grouped .row .status, .grouped #head [data-col="status"],
+.no-context .ctx, .hide-context .ctx, .no-context #head [data-col="context"], .hide-context #head [data-col="context"],
+.no-ref .row .ref, .hide-ref .row .ref, .no-ref #head [data-col="ref"], .hide-ref #head [data-col="ref"],
+.hide-age .row .age, .hide-age #head [data-col="age"],
+.hide-repo .row .repo, .hide-repo #head [data-col="repo"],
+.hide-summary .row .summary, .hide-summary #head [data-col="summary"] { visibility: hidden; overflow: hidden; }
 
-#empty { padding: 26px 15px; color: var(--muted); font-size: 13px; }
-#error { padding: 10px 15px; border-bottom: 1px solid var(--rule-frame); background: var(--band); color: var(--alert); font-family: var(--mono); font-size: 11.5px; }
+/* A column that is not on screen has no boundary to drag. */
+.grouped #head [data-col="status"] .grip,
+.no-context #head [data-col="context"] .grip, .hide-context #head [data-col="context"] .grip,
+.no-ref #head [data-col="ref"] .grip, .hide-ref #head [data-col="ref"] .grip,
+.hide-age #head [data-col="age"] .grip,
+.hide-repo #head [data-col="repo"] .grip { display: none; }
+
+#empty { padding: 26px 15px; color: var(--muted); font-size: var(--fs-3); }
+#error { padding: 10px 15px; border-bottom: 1px solid var(--rule-frame); background: var(--band); color: var(--alert); font-family: var(--mono); font-size: var(--fs-1); }
 
 /* -------------------------------------------------------------- readout */
 
-#readout { display: flex; flex-direction: column; gap: 14px; margin-top: 22px; flex: none; }
+#readout { display: flex; flex-direction: column; gap: 12px; margin-top: 20px; flex: none; }
 #readhead { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; }
-#readhead .where { font-family: var(--mono); font-size: 11px; color: var(--muted); }
+#readlabel .readname { font-family: var(--sans); font-size: var(--fs-3); font-weight: 600; letter-spacing: 0; text-transform: none; color: var(--text); }
+#readhead .where { font-family: var(--mono); font-size: var(--fs-1); color: var(--muted); }
 
 #cells { display: grid; grid-auto-columns: minmax(0, 1fr); grid-auto-flow: column; border: 1px solid var(--rule-frame); }
-.cell { display: flex; flex-direction: column; gap: 9px; padding: 15px 16px; border-left: 1px solid var(--rule-row); min-width: 0; }
+.cell { display: flex; flex-direction: column; gap: 7px; padding: 12px 14px; border-left: 1px solid var(--rule-row); min-width: 0; }
 .cell:first-child { border-left: 0; }
 /* One line each, truncated. A branch name long enough to wrap would push
  * the whole readout taller, which is height the list is owed. */
 .cell .line {
   font-family: var(--mono);
-  font-size: 12px;
+  font-size: var(--fs-2);
   color: var(--text);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .cell .line.soft { color: var(--muted); }
-.cell .note { font-family: var(--mono); font-size: 10.5px; color: var(--muted); }
+.cell .note { font-family: var(--mono); font-size: var(--fs-1); color: var(--muted); }
 .cell .big { display: flex; align-items: baseline; gap: 8px; }
-.cell .big b { font-family: var(--cond); font-weight: 700; font-size: 30px; line-height: 1; }
-.cell .big span { font-family: var(--mono); font-size: 10.5px; color: var(--muted); }
+.cell .big b { font-family: var(--mono); font-weight: 500; font-size: var(--fs-4); line-height: 1.2; }
+.cell .big span { font-family: var(--mono); font-size: var(--fs-1); color: var(--muted); }
 .chip {
   display: inline-flex;
   align-self: flex-start;
-  padding: 2px 8px;
+  padding: 1px 7px;
   border: 1px solid var(--accent);
-  font-family: var(--cond);
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
+  font-size: var(--fs-2);
   color: var(--accent-ink);
 }
 .branch { color: var(--accent-ink); }
@@ -630,21 +736,21 @@ body.resizing { cursor: col-resize; user-select: none; }
 /* The subagent list scrolls inside its cell rather than growing it: the
  * readout's height is measured and taken from the list, and a session with
  * a dozen agents working should not squeeze the table to three rows. */
-.cell .sublist { display: flex; flex-direction: column; gap: 5px; max-height: 118px; overflow-y: auto; min-width: 0; }
-.cell .subagent { display: flex; flex: none; line-height: 1.4; align-items: baseline; gap: 7px; min-width: 0; font-family: var(--mono); font-size: 12px; color: var(--muted); }
+.cell .sublist { display: flex; flex-direction: column; gap: 5px; max-height: 108px; overflow-y: auto; min-width: 0; }
+.cell .subagent { display: flex; flex: none; line-height: 1.4; align-items: baseline; gap: 7px; min-width: 0; font-family: var(--mono); font-size: var(--fs-2); color: var(--muted); }
 .cell .subagent.working { color: var(--text); }
 .cell .subagent .glyph { flex: none; font-size: 10px; }
 .cell .subagent.working .glyph { color: var(--busy); }
 .cell .subagent .what { flex: 1 1 auto; min-width: 0; }
-.cell .subagent .when { flex: none; font-size: 10.5px; color: var(--muted); }
-.cell .said { display: block; flex: none; margin: -3px 0 0 17px; line-height: 1.4; font-family: var(--mono); font-size: 10.5px; color: var(--muted); }
+.cell .subagent .when { flex: none; font-size: var(--fs-1); color: var(--muted); }
+.cell .said { display: block; flex: none; margin: -3px 0 0 17px; line-height: 1.4; font-family: var(--mono); font-size: var(--fs-1); color: var(--muted); }
 .cell .fold {
   align-self: flex-start;
   border: 0;
   padding: 0;
   background: none;
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: var(--fs-1);
   color: var(--accent-ink);
   cursor: pointer;
 }
@@ -654,10 +760,10 @@ body.resizing { cursor: col-resize; user-select: none; }
  * characters of markdown. Three lines of it is a reminder of where the
  * session got to; the rest is in the terminal this window points at. */
 #last {
-  padding: 13px 15px;
+  padding: 11px 14px;
   border: 1px solid var(--rule-row);
   background: var(--panel);
-  font-size: 13.5px;
+  font-size: var(--fs-3);
   line-height: 1.55;
   color: var(--secondary);
   display: -webkit-box;
@@ -666,73 +772,110 @@ body.resizing { cursor: col-resize; user-select: none; }
   overflow: hidden;
 }
 
-#actions { display: flex; align-items: center; gap: 12px; }
-#actions button {
-  padding: 9px 18px;
-  border: 1px solid var(--rule-frame);
-  background: none;
-  font-family: var(--cond);
-  font-size: 15px;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: var(--secondary);
-}
-#actions button.primary { border-color: var(--accent-ink); background: var(--accent-ink); color: #fff; font-weight: 600; }
-#actions button.danger { color: var(--alert); }
-#actions button:disabled { color: var(--muted); border-color: var(--rule-row); }
+#actions { display: flex; align-items: center; gap: 10px; }
+#keysBtn { margin-left: auto; border-color: transparent; color: var(--muted); }
 
-#legend { display: flex; align-items: center; gap: 18px; margin-left: auto; font-family: var(--cond); font-size: 13px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); }
-#legend span { display: inline-flex; align-items: center; gap: 7px; }
-#legend kbd { padding: 2px 7px; border: 1px solid var(--rule-frame); font-family: var(--mono); font-size: 11px; letter-spacing: 0; text-transform: none; color: var(--text); }
-
-#notice { min-height: 16px; margin-top: 10px; font-family: var(--mono); font-size: 11.5px; color: var(--secondary); }
+#notice { min-height: 16px; margin-top: 8px; font-family: var(--mono); font-size: var(--fs-1); color: var(--secondary); }
 #notice.alert { color: var(--alert); }
 
 /* Collapsed to a single strip when the list needs the room. */
 #readout.strip #cells, #readout.strip #last { display: none; }
 #readout.strip { gap: 10px; margin-top: 14px; }
-#readout.strip #readhead { padding: 9px 12px; border: 1px solid var(--rule-frame); }
+#readout.strip #readhead { padding: 8px 12px; border: 1px solid var(--rule-frame); }
 /* One line, always: a strip that wraps has stopped being a strip. */
 #readout.strip #readlabel, #readout.strip .where { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #readout.strip #readlabel { flex: 0 1 auto; }
 #readout.strip .where { flex: 0 1 auto; }
+
+/* ------------------------------------------------------------ menus */
+
+/* One menu element serves the View button, a row's context menu and the
+ * header's. It floats over everything, is placed by the script at the
+ * pointer or under its button, and is kept inside the window. */
+#menu {
+  position: fixed;
+  z-index: 20;
+  min-width: 220px;
+  max-height: calc(100vh - 16px);
+  overflow-y: auto;
+  padding: 4px 0;
+  border: 1px solid var(--rule-frame);
+  background: var(--menu);
+  font-size: var(--fs-3);
+}
+#menu .heading {
+  display: block;
+  padding: 8px 12px 3px;
+}
+#menu hr { margin: 4px 0; border: 0; border-top: 1px solid var(--rule-row); }
+#menu button {
+  display: grid;
+  grid-template-columns: 16px 1fr auto;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  padding: 4px 12px 4px 8px;
+  border: 0;
+  background: none;
+  text-align: left;
+  color: var(--text);
+}
+#menu button::before { content: ""; text-align: center; color: var(--accent-ink); }
+#menu button[aria-checked="true"]::before { content: "\2713"; }
+#menu button[role="menuitemradio"][aria-checked="true"]::before { content: "\25CF"; font-size: 9px; }
+#menu button:hover:not(:disabled), #menu button:focus-visible { background: var(--select); box-shadow: inset 3px 0 0 var(--accent); outline: 0; }
+#menu button:focus { outline: 0; }
+#menu button:active:not(:disabled) { background: var(--band); }
+#menu button:disabled { color: var(--muted); }
+#menu button.danger { color: var(--alert); }
+#menu button.danger:disabled { color: var(--muted); }
+#menu .hint { padding-left: 16px; font-family: var(--mono); font-size: var(--fs-1); color: var(--muted); }
+
+/* ---------------------------------------------------- shortcut sheet */
+
+#keys {
+  width: min(560px, calc(100vw - 32px));
+  padding: 0;
+  border: 1px solid var(--rule-frame);
+  background: var(--menu);
+  color: var(--text);
+}
+#keys::backdrop { background: rgb(0 0 0 / 0.25); }
+#keys header { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; border-bottom: 1px solid var(--rule-row); }
+#keys header .btn { padding: 2px 8px; }
+#keys .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 0 24px; padding: 12px 16px 16px; }
+#keys section { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; }
+#keys dl { display: grid; grid-template-columns: auto 1fr; gap: 6px 12px; margin: 0; align-items: baseline; }
+#keys dt { white-space: nowrap; }
+#keys dd { margin: 0; font-size: var(--fs-3); color: var(--secondary); }
 
 /* ---------------------------------------------------------- compactness */
 
 .compact {
   --row-pad: 6px;
   --col-gap: 10px;
-  --name-size: 12.5px;
+  --name-size: 12px;
   --bar-w: 30px;
 }
 .compact .row { border-bottom-color: var(--rule-compact); }
-.compact .row .status { font-family: var(--mono); font-size: 10.5px; font-weight: 500; letter-spacing: 0.04em; }
-.compact .row .summary { font-size: 12px; }
+.compact .row .status { font-size: var(--fs-2); }
+.compact .row .summary { font-size: var(--fs-2); }
 
 /* -------------------------------------------------------- laptop, <1200 */
 
 @media (max-width: 1200px) {
-  :root { --sidebar: 186px; }
-  /* on body, not :root, and the same below for REPO: a width you dragged is
-   * set inline on the root element, where it outranks any stylesheet rule
-   * there. Declaring the collapse one level closer to the table means a
-   * column the layout has taken off the screen cannot be dragged back onto
-   * it as an empty gap. .no-context and .no-ref land on body for the same
-   * reason. */
+  :root { --sidebar: 190px; }
   body { --col-summary: 0px; }
   /* MODEL and REPO fold into a subline under the name; SUMMARY leaves the
    * table entirely - the fixed columns leave too little to split between it
    * and the name. It survives in the readout. PR / ISSUE stays: it is the
    * one column here that says what the agent is actually working on. */
-  .row .summary, #head .summary { visibility: hidden; overflow: hidden; }
+  .row .summary, #head [data-col="summary"] { visibility: hidden; overflow: hidden; }
   .row .sub { display: block; }
   .row .name-cell { min-width: 0; }
   /* The readout goes 2 x 2 here, so it costs roughly twice the height. */
   :root { --readout-h: 460px; }
   #models, #copycwd { display: none; }
-  #tally { font-size: 12px; letter-spacing: 0.1em; }
-  /* The sort control drops to four keys and loses its label. */
-  #sortLabel, #sortKeys [data-sort="dir"], #sortKeys [data-sort="repo"] { display: none; }
   #cells { grid-auto-flow: row; grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .cell:nth-child(odd) { border-left: 0; }
   .cell:nth-child(n + 3) { border-top: 1px solid var(--rule-row); }
@@ -740,14 +883,13 @@ body.resizing { cursor: col-resize; user-select: none; }
    * the list is owed. The header already carries the tty, so Location is
    * the one to give way when a session has subagents to show. */
   #cells:has(.subagents) .location { display: none; }
-  #filter { min-width: 200px; }
+  #keysBtn .label-text { display: none; }
 }
 
 /* Below the floor the sidebar hides behind cmd-1 rather than reflowing on. */
 @media (max-width: 979px) {
   #app { grid-template-columns: 1fr; }
   #sidebar { display: none; }
-  #viewKeys { display: none; }
 }
 
 /* ------------------------------------------------------- desktop, 1600+ */
@@ -755,9 +897,8 @@ body.resizing { cursor: col-resize; user-select: none; }
 @media (min-width: 1600px) {
   :root {
     --readout-h: 340px;
-    --sidebar: 260px;
+    --sidebar: 250px;
   }
-  #filter { min-width: 420px; }
   /* Past ~2200 the drawing stops reading as one; cap and centre it. */
   #main > * { max-width: 2200px; width: 100%; margin-left: auto; margin-right: auto; }
   .cell { max-width: 480px; }
@@ -766,7 +907,7 @@ body.resizing { cursor: col-resize; user-select: none; }
  * name's subline already carries below 1200, and the readout always does. */
 @media (max-width: 1599px) {
   body { --col-repo: 0px; }
-  .row .repo, #head .repo { visibility: hidden; overflow: hidden; }
+  .row .repo, #head [data-col="repo"] { visibility: hidden; overflow: hidden; }
   #head [data-col="repo"] .grip { display: none; }
 }
 

@@ -1,7 +1,7 @@
 <div id="app">
   <aside id="sidebar">
     <div id="brand">
-      <b>SWITCHBOARD</b>
+      <b>Switchboard</b>
       <span id="tally"></span>
     </div>
 
@@ -29,25 +29,26 @@
          not have - the spend limit, on everything but a gateway account -
          simply never appears. -->
     <div id="usage" hidden>
+      <span class="label">Usage</span>
       <div class="meter" id="usage5h" hidden>
-        <span class="label">Session &middot; 5 hours</span>
+        <span class="label">5 hours</span>
         <div class="big"><b id="usage5hPct"></b><span>of window</span></div>
         <div class="bar" id="usage5hBar"><i></i><u></u></div>
-        <span class="note" id="usage5hNote"></span>
+        <span class="note sr" id="usage5hNote"></span>
       </div>
 
       <div class="meter" id="usage7d" hidden>
-        <span class="label">Week &middot; all models</span>
+        <span class="label" data-full="Week, all models">Week</span>
         <div class="big"><b id="usage7dPct"></b><span>of window</span></div>
         <div class="bar" id="usage7dBar"><i></i><u></u></div>
-        <span class="note" id="usage7dNote"></span>
+        <span class="note sr" id="usage7dNote"></span>
       </div>
 
       <div class="meter" id="usageSpend" hidden>
         <span class="label">Spend limit</span>
         <div class="big"><b id="usageSpendPct"></b><span>of budget</span></div>
         <div class="bar" id="usageSpendBar"><i></i><u></u></div>
-        <span class="note" id="usageSpendNote"></span>
+        <span class="note sr" id="usageSpendNote"></span>
       </div>
     </div>
 
@@ -78,18 +79,19 @@
          different account's quota, and stacking them together would read
          as one budget. Hidden on a machine with no Codex reading. -->
     <div id="codexusage" hidden>
+      <span class="label">Codex usage</span>
       <div class="meter" id="codex5h" hidden>
-        <span class="label">Codex &middot; 5 hours</span>
+        <span class="label">5 hours</span>
         <div class="big"><b id="codex5hPct"></b><span>of window</span></div>
         <div class="bar" id="codex5hBar"><i></i><u></u></div>
-        <span class="note" id="codex5hNote"></span>
+        <span class="note sr" id="codex5hNote"></span>
       </div>
 
       <div class="meter" id="codex7d" hidden>
-        <span class="label">Codex &middot; week</span>
+        <span class="label">Week</span>
         <div class="big"><b id="codex7dPct"></b><span>of window</span></div>
         <div class="bar" id="codex7dBar"><i></i><u></u></div>
-        <span class="note" id="codex7dNote"></span>
+        <span class="note sr" id="codex7dNote"></span>
       </div>
     </div>
 
@@ -116,18 +118,12 @@
         <input id="filterInput" type="text" placeholder="filter name, repo, model, PR, or summary"
                autocomplete="off" spellcheck="false" aria-label="Filter agents">
       </label>
-      <div id="controls">
-        <span id="sortLabel">Sort</span>
-        <span class="segmented" id="sortKeys"></span>
-        <span class="segmented" id="viewKeys">
-          <button type="button" data-group="1">Grouped</button>
-          <button type="button" data-group="0">Flat</button>
-        </span>
-        <span class="segmented">
-          <button type="button" data-density="compact">Compact</button>
-          <button type="button" data-density="comfy">Comfy</button>
-        </span>
-      </div>
+      <!-- Grouping, density, sorting and which columns show. Sorting is
+           also on the headers and the s a c n r d keys; the rest is set
+           once and rarely touched, so it lives behind one button. -->
+      <button type="button" class="btn" id="viewBtn" aria-haspopup="menu" aria-expanded="false">
+        View <span class="caret" aria-hidden="true">&#9662;</span>
+      </button>
     </div>
 
     <div id="listframe">
@@ -145,9 +141,9 @@
         <span class="col" data-col="age"><button type="button" data-sort="age">Age</button></span>
         <span class="col" data-col="name"><button type="button" data-sort="name">Name</button></span>
         <span class="col" data-col="context"><button type="button" data-sort="context">Context</button></span>
-        <span class="col" data-col="repo"><button type="button" class="repo" data-sort="repo">Repo</button></span>
-        <span class="col" data-col="ref"><span class="ref">PR / Issue</span></span>
-        <span class="col" data-col="summary"><span class="summary">Summary</span></span>
+        <span class="col" data-col="repo"><button type="button" data-sort="repo">Repo</button></span>
+        <span class="col" data-col="ref"><span>PR / Issue</span></span>
+        <span class="col" data-col="summary"><span>Summary</span></span>
       </div>
       <div id="list" role="grid" aria-label="Claude Code agents" tabindex="-1"></div>
       <div id="empty" hidden>no agents match</div>
@@ -161,16 +157,64 @@
       <div id="cells"></div>
       <div id="last" hidden></div>
       <div id="actions">
-        <button type="button" id="focusBtn" class="primary">Focus window &#9166;</button>
-        <button type="button" id="copycwd">Copy cwd</button>
-        <button type="button" id="stopBtn" class="danger">Stop &#8963;X</button>
-        <span id="legend">
-          <span><kbd>&#8593;&#8595; jk</kbd> move</span>
-          <span><kbd>s a c n r</kbd> sort</span>
-          <span><kbd>q</kbd> quit</span>
-        </span>
+        <button type="button" id="focusBtn" class="btn primary">Focus window <span class="key" aria-hidden="true">&#9166;</span></button>
+        <button type="button" id="copycwd" class="btn">Copy cwd</button>
+        <button type="button" id="stopBtn" class="btn danger">Stop <span class="key" aria-hidden="true">&#8963;X</span></button>
+        <button type="button" id="keysBtn" class="btn" aria-haspopup="dialog"><span class="label-text">Keyboard shortcuts</span> <kbd>?</kbd></button>
       </div>
       <div id="notice" role="status" aria-live="polite"></div>
     </div>
   </main>
 </div>
+
+<!-- Shared by the View button and both context menus; the script fills it
+     each time it opens. -->
+<div id="menu" role="menu" hidden></div>
+
+<!-- Every key the window answers to. It replaces a legend that took a strip
+     of the window permanently and still left most of them out. -->
+<dialog id="keys" aria-labelledby="keysTitle">
+  <header>
+    <span class="label" id="keysTitle">Keyboard shortcuts</span>
+    <button type="button" class="btn" id="keysClose">Close <kbd>esc</kbd></button>
+  </header>
+  <div class="cols">
+    <div>
+      <section>
+        <span class="label">Move</span>
+        <dl>
+          <dt><kbd>&#8593;</kbd> <kbd>&#8595;</kbd> <kbd>j</kbd> <kbd>k</kbd></dt><dd>Up and down the list</dd>
+          <dt><kbd>g</kbd> <kbd>G</kbd></dt><dd>First and last agent</dd>
+          <dt><kbd>/</kbd></dt><dd>Filter</dd>
+          <dt><kbd>esc</kbd></dt><dd>Clear the filter and queue</dd>
+        </dl>
+      </section>
+      <section>
+        <span class="label">Act</span>
+        <dl>
+          <dt><kbd>&#9166;</kbd></dt><dd>Focus the agent's window</dd>
+          <dt><kbd>&#8963;X</kbd></dt><dd>Stop the agent, then <kbd>y</kbd> to confirm</dd>
+          <dt><kbd>&#8679;F10</kbd></dt><dd>Actions for the selected agent</dd>
+        </dl>
+      </section>
+    </div>
+    <div>
+      <section>
+        <span class="label">Sort</span>
+        <dl>
+          <dt><kbd>s</kbd> <kbd>a</kbd> <kbd>c</kbd></dt><dd>Status, age, context</dd>
+          <dt><kbd>n</kbd> <kbd>r</kbd> <kbd>d</kbd></dt><dd>Name, repository, directory</dd>
+        </dl>
+      </section>
+      <section>
+        <span class="label">Window</span>
+        <dl>
+          <dt><kbd>e</kbd></dt><dd>Show or hide ended agents</dd>
+          <dt><kbd>&#8984;1</kbd></dt><dd>Show or hide the sidebar</dd>
+          <dt><kbd>?</kbd></dt><dd>This sheet</dd>
+          <dt><kbd>q</kbd> <kbd>&#8984;Q</kbd></dt><dd>Quit</dd>
+        </dl>
+      </section>
+    </div>
+  </div>
+</dialog>
