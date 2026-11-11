@@ -15,7 +15,13 @@ if [ $# -lt 2 ]; then
 fi
 
 VERSION="$1"
-SHA256=$(shasum -a 256 "$2" | cut -d' ' -f1)
+if [ ! -f "$2" ]; then
+	echo "$0: no such zip: $2" >&2
+	exit 1
+fi
+# No pipe, so a failing shasum stops the script under set -e.
+SHA256=$(shasum -a 256 "$2")
+SHA256="${SHA256%% *}"
 NOTARIZED="${3:-}"
 
 cat <<EOF
