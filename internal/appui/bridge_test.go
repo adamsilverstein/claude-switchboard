@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/adamsilverstein/claude-switchboard/internal/forge"
 	"github.com/adamsilverstein/claude-switchboard/internal/registry"
 	"github.com/adamsilverstein/claude-switchboard/internal/ui"
 )
@@ -87,6 +88,10 @@ func TestHandleAppliesEveryCommandThePageSends(t *testing.T) {
 	if act.Kind != "stop" || act.PID != 2 || act.SessionID != "s2" {
 		t.Errorf("stop = %+v, want {stop 2 s2}", act)
 	}
+	act = c.Handle(`{"cmd":"sweep","agents":[{"pid":1,"sessionId":"s1"},{"pid":3,"sessionId":"s3"}]}`)
+	if act.Kind != "sweep" || len(act.Targets) != 2 || act.Targets[1] != (Target{PID: 3, SessionID: "s3"}) {
+		t.Errorf("sweep = %+v, want both targets", act)
+	}
 	act = c.Handle(`{"cmd":"peek","pid":1,"sessionId":"s1"}`)
 	if act.Kind != "peek" || act.PID != 1 || act.SessionID != "s1" {
 		t.Errorf("peek = %+v, want {peek 1 s1}", act)
@@ -113,10 +118,16 @@ func TestHandleIgnoresNonsense(t *testing.T) {
 		`{"cmd":"sort"}`,  // no key: falls back to status
 		`{"cmd":"focus"}`, // no agent named
 		`{"cmd":42}`,      // wrong type
+		`{"cmd":"sweep"}`, // nothing to sweep
+		`{"cmd":"sweep","agents":[{"pid":0,"sessionId":""}]}`,
+		`{"cmd":"sweep","agents":"all"}`,
 	} {
 		act := c.Handle(raw)
 		if act.Kind == "quit" {
 			t.Errorf("%q was treated as a quit", raw)
+		}
+		if act.Kind == "sweep" {
+			t.Errorf("%q started a sweep", raw)
 		}
 		if act.Kind == "stop" && act.PID == 0 {
 			// A stop with no agent must find nothing, never signal.
@@ -222,6 +233,9 @@ func TestBandOrderMatchesTheSortOrder(t *testing.T) {
 		{Agent: registry.Agent{PID: 4, Status: "shell", Live: true}},
 		{Agent: registry.Agent{PID: 5, Status: "idle", Live: true}},
 		{Agent: registry.Agent{PID: 6, Status: "idle", Live: true}, Telemetry: ui.Telemetry{Waiting: true}},
+		{Agent: registry.Agent{PID: 7, Status: "idle", Live: true}, Telemetry: ui.Telemetry{
+			Waiting: true, Ref: forge.Ref{Number: 7, Kind: "pr", State: "merged", Known: true},
+		}},
 	}
 	ui.SortRows(rows, ui.SortStatus)
 

@@ -500,3 +500,19 @@ func digitRun(s string) (string, string, bool) {
 	}
 	return s[:i], s[i:], i > 0
 }
+
+// PRState asks GitHub for one pull request's state, bypassing the cache:
+// "open", "merged" or "closed". It is for a decision rather than display,
+// such as whether an agent's pull request is still merged right before the
+// agent is stopped.
+func PRState(r Runner, dir string, number int) (string, error) {
+	out, err := r.RunIn(dir, "gh", "pr", "view", strconv.Itoa(number), "--json", "state", "--jq", ".state")
+	if err != nil {
+		return "", err
+	}
+	s := strings.ToLower(strings.TrimSpace(out))
+	if s == "" {
+		return "", errors.New("gh reported no state")
+	}
+	return s, nil
+}

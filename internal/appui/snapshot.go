@@ -382,11 +382,15 @@ func formatCache(c *ui.Cache) string {
 }
 
 // statusWord is the word the row shows. A dead agent is "dead" whatever the
-// registry last recorded, and an idle agent whose transcript says it spoke
-// last is "waiting" - the registry has no such flag, so it is derived.
+// registry last recorded, an idle agent on a merged or closed pull request is
+// "done", and an idle agent whose transcript says it spoke last is "waiting" -
+// the registry has neither flag, so both are derived.
 func statusWord(r ui.Row) string {
 	if !r.Agent.Live {
 		return "dead"
+	}
+	if r.Done() {
+		return "done"
 	}
 	if r.Telemetry.Waiting {
 		return "waiting"

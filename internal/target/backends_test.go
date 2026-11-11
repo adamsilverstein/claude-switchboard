@@ -93,6 +93,10 @@ func TestResolveTerminalAgent(t *testing.T) {
 	if loc.Backend != "terminal" || loc.Desc != "Terminal window 2, tab 2 (/dev/ttys014)" {
 		t.Errorf("Backend, Desc = %q, %q", loc.Backend, loc.Desc)
 	}
+	// A sweep only knows how to close an iTerm pane.
+	if len(loc.CloseCommands) != 0 {
+		t.Errorf("a Terminal tab got close commands %+v", loc.CloseCommands)
+	}
 	args := strings.Join(loc.Commands[0].Args, " ")
 	if !strings.HasSuffix(args, "/dev/ttys014 911 2") {
 		t.Errorf("focus args should end with tty, window id, tab index; got %q", args[len(args)-30:])
@@ -107,6 +111,9 @@ func TestResolveGhosttyAgent(t *testing.T) {
 	}
 	if loc.Backend != "ghostty" {
 		t.Errorf("Backend = %q", loc.Backend)
+	}
+	if len(loc.CloseCommands) != 0 {
+		t.Errorf("a Ghostty terminal got close commands %+v", loc.CloseCommands)
 	}
 	args := loc.Commands[0].Args
 	if got := strings.Join(args[len(args)-2:], " "); got != "8C1D2E3F-BBBB /dev/ttys031" {

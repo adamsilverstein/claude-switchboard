@@ -575,18 +575,40 @@ func SortRows(rows []Row, key SortKey) {
 }
 
 // statusForRank is the status the sort treats the row as having. It is the
-// registry's own status unless telemetry derived that the agent is waiting
-// on you, which the registry never records itself. Rows with no telemetry -
-// every row the terminal picker builds - rank exactly as they always did.
+// registry's own status unless telemetry derived something the registry
+// never records itself: that the agent's work has shipped, or that it is
+// waiting on you. Rows with no telemetry - every row the terminal picker
+// builds - rank exactly as they always did.
 func (r Row) statusForRank() string {
+	if r.Done() {
+		return "done"
+	}
 	if r.Telemetry.Waiting {
 		return "waiting"
 	}
 	return r.Agent.Status
 }
 
+// Done reports whether the agent has outlived its work: it is still running,
+// it is idle, and the pull request its branch belongs to has merged or
+// closed. An agent mid-turn on a merged branch is not done - it may be
+// writing the follow-up - so only an idle one qualifies. Done wins over
+// waiting: an agent that finished its turn on shipped work is not asking
+// for anything.
+//
+// Only a pull request counts. A branch that falls back to an issue number
+// says what the work was about, not that the work itself has landed.
+func (r Row) Done() bool {
+	if !r.Agent.Live || r.Agent.Status != "idle" {
+		return false
+	}
+	ref := r.Telemetry.Ref
+	return ref.Kind == "pr" && (ref.State == "merged" || ref.State == "closed")
+}
+
 // statusRank orders statuses by how much attention they deserve: agents
-// waiting on you first, then working ones.
+// waiting on you first, then working ones, and finished work after every
+// other live agent, since all it is waiting for is to be cleaned up.
 func statusRank(status string) int {
 	switch status {
 	case "waiting":
@@ -597,8 +619,10 @@ func statusRank(status string) int {
 		return 2
 	case "shell":
 		return 3
-	default:
+	case "done":
 		return 4
+	default:
+		return 5
 	}
 }
 

@@ -198,3 +198,49 @@ func FocusCommand(s ItermSession) Command {
 		strconv.Itoa(s.SessionIndex),
 	}}
 }
+
+// closeSessionScript closes one iTerm session - the pane, not the window, so
+// a window holding other tabs keeps them. Closing a window's last session
+// closes the window too, which is iTerm's doing and the common case.
+//
+// It addresses the session the same way focusSessionScript does: by its
+// recorded position first, confirmed by UUID, and by a scan when the layout
+// has moved since enumeration.
+const closeSessionScript = `on run argv
+	set targetId to item 1 of argv
+	set wid to (item 2 of argv) as integer
+	set ti to (item 3 of argv) as integer
+	set si to (item 4 of argv) as integer
+	tell application "iTerm2"
+		try
+			set s to session si of tab ti of (window id wid)
+			if (id of s) is targetId then
+				close s
+				return "ok"
+			end if
+		end try
+		repeat with w in windows
+			repeat with t in tabs of w
+				repeat with s in sessions of t
+					if (id of s) is targetId then
+						close s
+						return "ok"
+					end if
+				end repeat
+			end repeat
+		end repeat
+	end tell
+	return "not found"
+end run`
+
+// CloseCommand returns the single osascript step that closes an iTerm
+// session.
+func CloseCommand(s ItermSession) Command {
+	return Command{Name: "osascript", Args: []string{
+		"-e", closeSessionScript,
+		s.SessionID,
+		strconv.Itoa(s.WindowID),
+		strconv.Itoa(s.TabIndex),
+		strconv.Itoa(s.SessionIndex),
+	}}
+}

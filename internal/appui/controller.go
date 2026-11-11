@@ -336,6 +336,23 @@ func (c *Controller) Find(pid int, session string) (registry.Agent, bool) {
 	return registry.Agent{}, false
 }
 
+// Sweepable returns the row a sweep command refers to, but only while it
+// still reads as done. The page asked about the rows it was showing, and in
+// the seconds since, a merged branch can have been checked out to new work
+// or the agent can have picked up a prompt; neither should be stopped on the
+// strength of a list that has gone stale. Nothing is sweepable while the last
+// poll failed, since the rows held then are older than they look.
+func (c *Controller) Sweepable(pid int, session string) (ui.Row, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for _, r := range c.rows {
+		if r.Agent.PID == pid && r.Agent.SessionID == session {
+			return r, c.err == nil && r.Done()
+		}
+	}
+	return ui.Row{}, false
+}
+
 // OpenableURL reports whether a URL from the page may be handed to the
 // browser. The page only ever asks for a pull request or issue that gh
 // resolved, so the allowed shape is exactly that and nothing else.
@@ -350,17 +367,30 @@ type Action struct {
 	// new frame now, rather than waiting up to a second for the poll.
 	Repaint bool
 
-	// Kind is "focus", "stop", "copy", "peek", "reply", "open", "quit",
-	// or "" when the command was fully handled here. Focus, stop, copy,
-	// peek and reply carry the agent they refer to; reply also carries
-	// its text, and open carries the URL.
+	// Kind is "focus", "stop", "copy", "peek", "reply", "sweep", "open",
+	// "quit", or "" when the command was fully handled here. Focus, stop,
+	// copy, peek and reply carry the agent they refer to; reply also
+	// carries its text, sweep the agents you confirmed, and open the URL.
 	Kind      string
 	PID       int
 	SessionID string
 	URL       string
 	Text      string
 	ID        int // the page's number for a reply, echoed back when it is done
+	Targets   []Target
 }
+
+// Target names one agent in a sweep, by the same pair Find matches on.
+type Target struct {
+	PID       int    `json:"pid"`
+	SessionID string `json:"sessionId"`
+}
+
+// maxSweep bounds how many agents one sweep command may name. The page only
+// ever sends the Done band, and nobody has a thousand agents; a longer list
+// is a malformed message, not a bigger cleanup. console.js checks the same
+// limit (MAX_SWEEP) before it asks, so a confirmed sweep is never dropped.
+const maxSweep = 100
 
 // Handle applies one command from the page.
 //
@@ -375,19 +405,20 @@ type Action struct {
 // total, because a malformed one must not take the window down.
 func (c *Controller) Handle(raw string) Action {
 	var m struct {
-		Cmd       string  `json:"cmd"`
-		Key       string  `json:"key"`
-		Q         string  `json:"q"`
-		On        bool    `json:"on"`
-		Value     string  `json:"value"`
-		Rows      int     `json:"rows"`
-		Widths    Columns `json:"widths"`
-		PID       int     `json:"pid"`
-		SessionID string  `json:"sessionId"`
-		URL       string  `json:"url"`
-		Col       string  `json:"col"`
-		Text      string  `json:"text"`
-		ID        int     `json:"id"`
+		Cmd       string   `json:"cmd"`
+		Key       string   `json:"key"`
+		Q         string   `json:"q"`
+		On        bool     `json:"on"`
+		Value     string   `json:"value"`
+		Rows      int      `json:"rows"`
+		Widths    Columns  `json:"widths"`
+		PID       int      `json:"pid"`
+		SessionID string   `json:"sessionId"`
+		URL       string   `json:"url"`
+		Col       string   `json:"col"`
+		Text      string   `json:"text"`
+		ID        int      `json:"id"`
+		Agents    []Target `json:"agents"`
 	}
 	if err := json.Unmarshal([]byte(raw), &m); err != nil {
 		return Action{}
@@ -422,6 +453,20 @@ func (c *Controller) Handle(raw string) Action {
 			return Action{}
 		}
 		return Action{Kind: "reply", PID: m.PID, SessionID: m.SessionID, Text: m.Text, ID: m.ID}
+	case "sweep":
+		// The page sends the rows it showed you in the confirmation,
+		// and only those are swept. Whether each is still done is
+		// decided again when the sweep runs, not here.
+		var ts []Target
+		for _, t := range m.Agents {
+			if t.PID > 0 && t.SessionID != "" {
+				ts = append(ts, t)
+			}
+		}
+		if len(ts) == 0 || len(ts) > maxSweep {
+			return Action{}
+		}
+		return Action{Kind: "sweep", Targets: ts}
 	case "open":
 		// Only a URL this build produced can be opened. Every one of
 		// them came back from `gh` as a github.com link, so anything

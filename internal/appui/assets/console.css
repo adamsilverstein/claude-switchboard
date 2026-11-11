@@ -530,6 +530,18 @@ body.resizing { cursor: col-resize; user-select: none; }
 }
 .band .hint { font-family: var(--sans); font-size: var(--fs-1); font-weight: 400; letter-spacing: 0; text-transform: none; color: var(--muted); }
 .band.toggle:hover .hint { color: var(--text); }
+.band .sweep {
+  margin-left: auto;
+  border: 1px solid var(--rule-row);
+  background: none;
+  padding: 0 7px;
+  font: inherit;
+  font-size: 10.5px;
+  letter-spacing: 0.12em;
+  color: var(--accent-ink);
+  cursor: pointer;
+}
+.band .sweep:hover { border-color: var(--accent-ink); }
 
 .row { border-bottom: 1px solid var(--rule-row); }
 .row:last-child { border-bottom: 0; }
@@ -571,6 +583,7 @@ body.resizing { cursor: col-resize; user-select: none; }
 .row[data-status="idle"] .dot, .row[data-status="idle"] .status { color: var(--idle); }
 .row[data-status="waiting"] .dot, .row[data-status="waiting"] .status { color: var(--alert); }
 .row[data-status="shell"] .dot, .row[data-status="shell"] .status { color: var(--accent-ink); }
+.row[data-status="done"] .dot, .row[data-status="done"] .status { color: var(--accent-ink); }
 
 /* A dead row reads quieter because the live rows are darker, not because it
  * is faded: opacity would take every part of it below 2.5:1. */

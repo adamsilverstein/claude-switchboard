@@ -77,7 +77,7 @@ func (res *Resolver) Resolve(a Agent) Location {
 		}
 	}
 	if w, ok := res.window(a.TTY, a.PID); ok {
-		return Location{Backend: w.backend, Desc: w.desc, Focusable: true, Commands: w.commands}
+		return Location{Backend: w.backend, Desc: w.desc, Focusable: true, Commands: w.commands, CloseCommands: w.close, TTY: a.TTY}
 	}
 	backend, reason := res.missReason(a.TTY, a.PID)
 	return Location{
@@ -93,6 +93,11 @@ type hostWindow struct {
 	desc     string // e.g. "iTerm window 3, tab 1, session 1 (/dev/ttys008)"
 	short    string // e.g. "iTerm window 3, tab 1", for a tmux client or viewer
 	commands []Command
+
+	// close closes the session the tty belongs to. Only an iTerm pane
+	// has one, and only Resolve hands it on: a tmux client or a viewer
+	// window shows other work too.
+	close []Command
 }
 
 // window finds the window that owns tty, trying iTerm first. On a miss it
@@ -134,6 +139,7 @@ func itermWindow(s ItermSession) hostWindow {
 		desc:     fmt.Sprintf("iTerm window %d, tab %d, session %d (%s)", s.WindowIndex, s.TabIndex, s.SessionIndex, s.TTY),
 		short:    fmt.Sprintf("iTerm window %d, tab %d", s.WindowIndex, s.TabIndex),
 		commands: []Command{FocusCommand(s)},
+		close:    []Command{CloseCommand(s)},
 	}
 }
 

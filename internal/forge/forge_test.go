@@ -521,3 +521,20 @@ func TestMalformedOutputIsNoAnswer(t *testing.T) {
 		}
 	}
 }
+
+func TestPRStateAsksForThatPullRequest(t *testing.T) {
+	f := &fakeGH{prs: "MERGED\n"}
+	got, err := PRState(f, "/repo", 41)
+	if err != nil || got != "merged" {
+		t.Errorf("PRState = %q, %v; want merged", got, err)
+	}
+	if f.count("/repo gh pr view 41 --json state") != 1 {
+		t.Errorf("calls = %v", f.calls)
+	}
+	if _, err := PRState(&fakeGH{err: errors.New("offline")}, "/repo", 41); err == nil {
+		t.Error("a failed lookup should be an error, not a state")
+	}
+	if _, err := PRState(&fakeGH{}, "/repo", 41); err == nil {
+		t.Error("an empty answer should be an error, not a state")
+	}
+}

@@ -123,6 +123,14 @@ func runApp(args []string) error {
 			}
 		case "quit":
 			w.Dispatch(w.Terminate)
+		case "sweep":
+			// Signals, git and AppleScript, then up to a few
+			// seconds waiting for the agents to exit: all of it
+			// off the UI thread.
+			go func() {
+				rep := newSweeper(control).run(act.Targets)
+				notice(rep.String(), len(rep.failed) > 0)
+			}()
 		case "reply":
 			// Typing runs AppleScript, with a pause before the
 			// return; off the UI thread like focus.
