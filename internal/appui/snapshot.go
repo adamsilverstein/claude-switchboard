@@ -32,10 +32,19 @@ type Snapshot struct {
 	Grouped  bool      `json:"grouped"`
 	Compact  bool      `json:"compact"`
 
+	// Density is the choice behind Compact: "compact", "comfy", or ""
+	// when the window decides from how many rows fit. Compact alone cannot
+	// tell the View menu which of the three to tick.
+	Density string `json:"density"`
+
 	// Columns are the header widths dragged in a previous session, so a
 	// relaunch opens to the table you shaped rather than to the default
 	// one. A column left at zero keeps the stylesheet's own width.
 	Columns Columns `json:"columns"`
+
+	// Hidden are the columns taken out of the table by choice, as opposed
+	// to the ones AnyContext and AnyRef drop for having nothing to show.
+	Hidden Hidden `json:"hidden"`
 
 	// Error is a scan failure, shown in place of the list. An empty
 	// string means the scan succeeded, including when it found nothing.
@@ -89,6 +98,10 @@ type Account struct {
 	Codex5hResetsIn string `json:"codex5hResetsIn,omitempty"`
 	Codex7dPct      *int   `json:"codex7dPct"`
 	Codex7dResetsIn string `json:"codex7dResetsIn,omitempty"`
+
+	// Today is the day's spend from the shim's ledger. Nil when nothing
+	// has been recorded today, and the page drops the panel.
+	Today *Today `json:"today"`
 }
 
 // AgentView is one row, formatted. Numbers arrive as strings that are ready
@@ -135,6 +148,15 @@ type AgentView struct {
 	RefState string `json:"refState,omitempty"` // "open", "draft", "merged", "closed"
 	RefTitle string `json:"refTitle,omitempty"`
 	RefURL   string `json:"refUrl,omitempty"`
+
+	// The checks, review and conflicts on an open or draft pull request.
+	// RefChecks is "pass", "fail" or "pending"; RefChecksLabel says it in
+	// a phrase, "2 failing". RefReview is "approved", "changes" or
+	// "required". All empty when there is nothing to mark.
+	RefChecks      string `json:"refChecks,omitempty"`
+	RefChecksLabel string `json:"refChecksLabel,omitempty"`
+	RefReview      string `json:"refReview,omitempty"`
+	RefConflicts   bool   `json:"refConflicts,omitempty"`
 
 	TTY       string `json:"tty,omitempty"`
 	Tmux      string `json:"tmux,omitempty"`
@@ -233,6 +255,10 @@ func view(now time.Time, r ui.Row) AgentView {
 		RefState:       t.Ref.State,
 		RefTitle:       t.Ref.Title,
 		RefURL:         t.Ref.URL,
+		RefChecks:      t.Ref.Checks.State(),
+		RefChecksLabel: t.Ref.Checks.Label(),
+		RefReview:      t.Ref.Review,
+		RefConflicts:   t.Ref.Conflicts,
 		ReplyBlocked:   ui.ReplyBlocked(r.Agent),
 	}
 	if t.ContextWindow > 0 {

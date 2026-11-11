@@ -17,6 +17,8 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
+	"os/exec"
 	"strings"
 	"sync"
 	"time"
@@ -24,6 +26,7 @@ import (
 	"github.com/adamsilverstein/claude-switchboard/internal/appui"
 	"github.com/adamsilverstein/claude-switchboard/internal/forge"
 	"github.com/adamsilverstein/claude-switchboard/internal/registry"
+	"github.com/adamsilverstein/claude-switchboard/internal/statusline"
 	"github.com/adamsilverstein/claude-switchboard/internal/ui"
 )
 
@@ -41,6 +44,14 @@ func main() {
 		fmt.Fprint(w, strings.Replace(appui.Page(), "</body>", bridge+"</body>", 1))
 	})
 	http.HandleFunc("/cmd", func(w http.ResponseWriter, r *http.Request) {
+		// Only the page this server served may send commands. Any site
+		// open in the same browser can POST to localhost, and copy
+		// writes to the real clipboard.
+		if o := r.Header.Get("Origin"); r.Method != http.MethodPost || (o != "" && o != "http://"+r.Host) ||
+			r.Header.Get("Sec-Fetch-Site") == "cross-site" {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
 		var m struct {
 			Cmd    string        `json:"cmd"`
 			Key    string        `json:"key"`
@@ -49,8 +60,9 @@ func main() {
 			Value  string        `json:"value"`
 			Rows   int           `json:"rows"`
 			Widths appui.Columns `json:"widths"`
+			Col    string        `json:"col"`
 			PID    int           `json:"pid"`
-			SID    string        `json:"sessionId"`
+			Sess   string        `json:"sessionId"`
 			Text   string        `json:"text"`
 			ID     int           `json:"id"`
 		}
@@ -68,6 +80,18 @@ func main() {
 			c.SetCapacity(m.Rows)
 		case "columns":
 			c.SetColumns(m.Widths)
+		case "hide":
+			c.SetHidden(m.Col, m.On)
+		case "copy":
+			// The real window copies through Go too; doing the same
+			// here keeps the menu item testable in a browser.
+			if a, ok := c.Find(m.PID, m.Sess); ok {
+				w.Header().Set("X-Notice", "copied "+a.Cwd)
+				if err := copyText(a.Cwd); err != nil {
+					w.Header().Set("X-Notice", "could not copy: "+err.Error())
+					w.Header().Set("X-Notice-Alert", "1")
+				}
+			}
 		}
 		res := struct {
 			Snapshot appui.Snapshot  `json:"snapshot"`
@@ -78,12 +102,12 @@ func main() {
 		switch m.Cmd {
 		case "peek":
 			repliesMu.Lock()
-			v := appui.PeekView{PID: m.PID, SessionID: m.SID, Asked: sampleAsked, Reply: sampleReply + replies[m.SID]}
+			v := appui.PeekView{PID: m.PID, SessionID: m.Sess, Asked: sampleAsked, Reply: sampleReply + replies[m.Sess]}
 			repliesMu.Unlock()
 			res.Peek = &v
 		case "reply":
 			repliesMu.Lock()
-			replies[m.SID] += "\n\n(you replied: " + m.Text + ")"
+			replies[m.Sess] += "\n\n(you replied: " + m.Text + ")"
 			repliesMu.Unlock()
 			ok := true
 			res.Replied, res.ID = &ok, m.ID
@@ -104,12 +128,15 @@ func main() {
 // stopped announcing - which is exactly what it did hide once.
 const bridge = `<script>
 async function cmd(json) {
-  const res = await (await fetch("/cmd", { method: "POST", body: json })).json();
-  window.__snapshot(JSON.stringify(res.snapshot));
-  if (res.peek) window.__peek(JSON.stringify(res.peek));
-  if (res.replied !== undefined) {
+  const res = await fetch("/cmd", { method: "POST", body: json });
+  const body = await res.json();
+  window.__snapshot(JSON.stringify(body.snapshot));
+  const note = res.headers.get("X-Notice");
+  if (note) window.__notice(note, res.headers.get("X-Notice-Alert") === "1");
+  if (body.peek) window.__peek(JSON.stringify(body.peek));
+  if (body.replied !== undefined) {
     window.__notice("sent", false);
-    window.__replied(res.id, res.replied);
+    window.__replied(body.id, body.replied);
   }
 }
 </script>
@@ -162,10 +189,17 @@ var (
 	used     = []int{158_000, 620_000, 176_000, 62_000, 310_000}
 	modes    = []string{"auto", "plan", "default"}
 	// One of each state, plus a branch with no pull request at all: the
-	// dash is as much a case worth looking at as the number is.
+	// dash is as much a case worth looking at as the number is. The open
+	// ones between them carry each kind of check and review mark.
 	refs = []forge.Ref{
-		{Number: 13, Kind: "pr", State: "open", Title: "Replace the app window's terminal with a Console", URL: "https://github.com/adamsilverstein/claude-switchboard/pull/13", Known: true},
-		{Number: 76767, Kind: "pr", State: "draft", Title: "Add emoji reactions to notes", URL: "https://github.com/WordPress/gutenberg/pull/76767", Known: true},
+		{Number: 13, Kind: "pr", State: "open", Title: "Replace the app window's terminal with a Console", URL: "https://github.com/adamsilverstein/claude-switchboard/pull/13", Known: true,
+			Checks: forge.Checks{Pass: 12}, Review: "required"},
+		{Number: 76767, Kind: "pr", State: "draft", Title: "Add emoji reactions to notes", URL: "https://github.com/WordPress/gutenberg/pull/76767", Known: true,
+			Checks: forge.Checks{Pass: 120, Pending: 14}},
+		{Number: 81940, Kind: "pr", State: "open", Title: "Fix flaky e2e on trunk", URL: "https://github.com/WordPress/gutenberg/pull/81940", Known: true,
+			Checks: forge.Checks{Pass: 131, Fail: 2}, Review: "changes"},
+		{Number: 13446, Kind: "pr", State: "open", Title: "Speculative loading defaults", URL: "https://github.com/WordPress/performance/pull/13446", Known: true,
+			Checks: forge.Checks{Pass: 40}, Review: "approved", Conflicts: true},
 		{Known: true},
 		{Number: 11, Kind: "issue", State: "open", Title: "Console redesign", URL: "https://github.com/adamsilverstein/claude-switchboard/issues/11", Known: true},
 		{Number: 10, Kind: "pr", State: "merged", Title: "Fix multi-monitor focus", URL: "https://github.com/adamsilverstein/claude-switchboard/pull/10", Known: true},
@@ -296,7 +330,46 @@ func account(bare bool) appui.Account {
 		Usage5hResetsIn:    "3h 12m",
 		Usage7dResetsIn:    "4d 14h",
 		UsageSpendResetsIn: "4d 14h",
-	})
+	}.WithToday(ledger(), time.Now()))
+}
+
+// ledger fabricates a working day of spend for the Today panel.
+func ledger() []statusline.LedgerEntry {
+	now := time.Now()
+	day := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	type step struct {
+		hour           int
+		session, model string
+		repo           string
+		usd            float64
+	}
+	steps := []step{
+		{8, "a", "Opus 5.5", "gutenberg", 2.4}, {9, "a", "Opus 5.5", "gutenberg", 6.1},
+		{9, "b", "Sonnet 5.5", "wordpress-develop", 1.2}, {10, "c", "Opus 5.5", "gutenberg", 4.8},
+		{11, "b", "Sonnet 5.5", "wordpress-develop", 3.3}, {13, "d", "Opus 5.5", "claude-switchboard", 2.9},
+		{14, "a", "Opus 5.5", "gutenberg", 7.5}, {14, "e", "Haiku 5.5", "wordpress-develop", 0.42},
+		{15, "d", "Opus 5.5", "claude-switchboard", 3.45},
+	}
+	totals := map[string]statusline.Totals{}
+	var out []statusline.LedgerEntry
+	for _, s := range steps {
+		// Shifted so the day ends at the current hour, whatever time
+		// the preview is opened.
+		h := max(0, now.Hour()-15+s.hour)
+		from := totals[s.session]
+		to := statusline.Totals{
+			USD:          from.USD + s.usd,
+			APIMS:        from.APIMS + int64(s.usd*90_000),
+			LinesAdded:   from.LinesAdded + int(s.usd*60),
+			LinesRemoved: from.LinesRemoved + int(s.usd*15),
+		}
+		totals[s.session] = to
+		out = append(out, statusline.LedgerEntry{
+			At: day.Add(time.Duration(h) * time.Hour).Unix(), Session: s.session,
+			Model: s.model, Repo: s.repo, From: from, To: to,
+		})
+	}
+	return out
 }
 
 // cache is the prompt cache for one fixture row, cycling through the three
@@ -310,4 +383,13 @@ func cache(i int) *ui.Cache {
 	default:
 		return nil
 	}
+}
+
+// copyText puts text on the clipboard with pbcopy, under a UTF-8 locale for
+// the same reason the app pins one. Off macOS it fails, and the page says so.
+func copyText(text string) error {
+	cmd := exec.Command("pbcopy")
+	cmd.Env = append(os.Environ(), "LC_ALL=en_US.UTF-8")
+	cmd.Stdin = strings.NewReader(text)
+	return cmd.Run()
 }

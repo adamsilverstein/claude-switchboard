@@ -1,8 +1,8 @@
 // Package target owns every piece of knowledge about terminals: which
 // windows exist, which one hosts a given agent, and how to focus it. Nothing
-// outside this package mentions AppleScript, iTerm, or tmux. Adding another
-// terminal (Ghostty, Terminal.app) should mean adding one backend file here
-// and registering it in the resolver.
+// outside this package mentions AppleScript, iTerm, or tmux. Each terminal
+// (iTerm2, Terminal.app, Ghostty, tmux) is one backend file here, registered
+// in the resolver.
 package target
 
 import (
@@ -51,7 +51,7 @@ func (c Command) String() string {
 
 // Location says where an agent's terminal lives and how to focus it.
 type Location struct {
-	Backend   string // "iterm" or "tmux"
+	Backend   string // "iterm", "terminal", "ghostty", or "tmux"
 	Desc      string // human-readable, e.g. "iTerm window 11, tab 1, session 1 (/dev/ttys008)"
 	Focusable bool
 	Reason    string    // why not focusable, when Focusable is false

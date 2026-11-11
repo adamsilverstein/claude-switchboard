@@ -72,7 +72,7 @@ func TestResolveBackgroundViewerOutsideIterm(t *testing.T) {
 	if loc.Focusable {
 		t.Error("a viewer iTerm does not host cannot be focused")
 	}
-	if !strings.Contains(loc.Reason, "/dev/ttys099") || !strings.Contains(loc.Reason, "not an iTerm window") {
+	if !strings.Contains(loc.Reason, "/dev/ttys099") || !strings.Contains(loc.Reason, "not in a window switchboard can raise") {
 		t.Errorf("Reason = %q", loc.Reason)
 	}
 }

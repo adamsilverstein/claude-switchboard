@@ -18,6 +18,10 @@ type fakeGH struct {
 	prs   string
 	issue string
 	err   error
+
+	// checks is what `gh pr checks` prints. It is printed alongside an
+	// exit error, as gh does whenever a check is failing or pending.
+	checks string
 }
 
 func (f *fakeGH) RunIn(dir, name string, args ...string) (string, error) {
@@ -29,6 +33,9 @@ func (f *fakeGH) RunIn(dir, name string, args ...string) (string, error) {
 	}
 	if len(args) > 1 && args[0] == "issue" {
 		return f.issue, nil
+	}
+	if len(args) > 1 && args[0] == "pr" && args[1] == "checks" {
+		return f.checks, errors.New("exit status 8")
 	}
 	return f.prs, nil
 }
@@ -91,6 +98,220 @@ func TestDraftIsAStateOfItsOwn(t *testing.T) {
 
 	if got := c.Ref("/repo", "wip"); got.State != "draft" {
 		t.Errorf("State = %q, want %q", got.State, "draft")
+	}
+}
+
+// The rollup mixes Actions check runs with old-style commit statuses, and
+// both have to land in the same three buckets. Skipped and neutral checks
+// are in none of them.
+func TestChecksReviewAndConflictsRideAlong(t *testing.T) {
+	gh := &fakeGH{prs: status(`{"number":81940,"title":"Fix CI","state":"OPEN","url":"u","isDraft":false,
+		"reviewDecision":"CHANGES_REQUESTED","mergeable":"CONFLICTING",
+		"statusCheckRollup":[
+			{"__typename":"CheckRun","status":"COMPLETED","conclusion":"SUCCESS"},
+			{"__typename":"CheckRun","status":"COMPLETED","conclusion":"SKIPPED"},
+			{"__typename":"CheckRun","status":"COMPLETED","conclusion":"NEUTRAL"},
+			{"__typename":"CheckRun","status":"COMPLETED","conclusion":"FAILURE"},
+			{"__typename":"CheckRun","status":"COMPLETED","conclusion":"TIMED_OUT"},
+			{"__typename":"CheckRun","status":"IN_PROGRESS","conclusion":""},
+			{"__typename":"CheckRun","status":"QUEUED","conclusion":""},
+			{"__typename":"StatusContext","state":"SUCCESS"},
+			{"__typename":"StatusContext","state":"ERROR"},
+			{"__typename":"StatusContext","state":"PENDING"}
+		]}`)}
+	c := NewCache(gh)
+	c.Ref("/repo", "fix-ci")
+	c.Wait()
+
+	got := c.Ref("/repo", "fix-ci")
+	want := Checks{Pass: 2, Fail: 3, Pending: 3}
+	if got.Checks != want {
+		t.Errorf("Checks = %+v, want %+v", got.Checks, want)
+	}
+	if got.Checks.State() != "fail" || got.Checks.Label() != "3 failing" {
+		t.Errorf("checks read %q / %q, want fail / 3 failing", got.Checks.State(), got.Checks.Label())
+	}
+	if got.Review != "changes" {
+		t.Errorf("Review = %q, want %q", got.Review, "changes")
+	}
+	if !got.Conflicts {
+		t.Error("Conflicts = false, want true")
+	}
+	if n := gh.count("statusCheckRollup,reviewDecision,mergeable"); n != 1 {
+		t.Errorf("asked for the extra fields %d times, want once, on the same call", n)
+	}
+}
+
+// A merged pull request's checks are history. Neither they nor a conflict
+// GitHub no longer bothers to recompute should put a mark on the row.
+func TestMergedPullRequestCarriesNoChecks(t *testing.T) {
+	gh := &fakeGH{prs: status(`{"number":10,"title":"Done","state":"MERGED","url":"u","isDraft":false,
+		"reviewDecision":"APPROVED","mergeable":"CONFLICTING",
+		"statusCheckRollup":[{"__typename":"CheckRun","status":"COMPLETED","conclusion":"FAILURE"}]}`)}
+	c := NewCache(gh)
+	c.Ref("/repo", "done")
+	c.Wait()
+
+	got := c.Ref("/repo", "done")
+	if got.Checks != (Checks{}) || got.Review != "" || got.Conflicts {
+		t.Errorf("Ref = %+v, want no checks, review or conflicts on a merged pull request", got)
+	}
+}
+
+// GitHub works mergeability out lazily and says UNKNOWN until it has.
+// That is not a conflict.
+func TestUnknownMergeabilityIsNotAConflict(t *testing.T) {
+	gh := &fakeGH{prs: status(`{"number":13,"title":"t","state":"OPEN","url":"u","isDraft":false,
+		"reviewDecision":"","mergeable":"UNKNOWN","statusCheckRollup":[]}`)}
+	c := NewCache(gh)
+	c.Ref("/repo", "b")
+	c.Wait()
+
+	got := c.Ref("/repo", "b")
+	if got.Conflicts || got.Review != "" || got.Checks.State() != "" {
+		t.Errorf("Ref = %+v, want nothing to mark", got)
+	}
+}
+
+// A stale check is one GitHub stopped waiting on. It has not passed, and
+// must not let the rest of a green rollup call the row green.
+func TestStaleCheckIsNotAPass(t *testing.T) {
+	gh := &fakeGH{prs: status(`{"number":13,"title":"t","state":"OPEN","url":"u","isDraft":false,
+		"statusCheckRollup":[
+			{"__typename":"CheckRun","status":"COMPLETED","conclusion":"SUCCESS"},
+			{"__typename":"CheckRun","status":"COMPLETED","conclusion":"STALE"}
+		]}`)}
+	c := NewCache(gh)
+	c.Ref("/repo", "b")
+	c.Wait()
+
+	if got := c.Ref("/repo", "b").Checks; got.State() != "pending" {
+		t.Errorf("Checks = %+v (%q), want pending", got, got.State())
+	}
+}
+
+// rollup builds a gh pr status answer whose rollup holds n passing checks.
+func rollup(n int) string {
+	checks := make([]string, n)
+	for i := range checks {
+		checks[i] = `{"__typename":"CheckRun","status":"COMPLETED","conclusion":"SUCCESS"}`
+	}
+	return status(`{"number":81940,"title":"t","state":"OPEN","url":"u","isDraft":false,
+		"statusCheckRollup":[` + strings.Join(checks, ",") + `]}`)
+}
+
+// gh pr status returns the first hundred checks and stops. A gutenberg pull
+// request has around 140, so a full page is recounted with gh pr checks,
+// which pages - otherwise a failure in the last forty reads as green.
+func TestAFullRollupIsRecounted(t *testing.T) {
+	gh := &fakeGH{
+		prs:    rollup(rollupPage),
+		checks: `[` + strings.Repeat(`{"bucket":"pass"},`, 130) + `{"bucket":"skipping"},{"bucket":"fail"},{"bucket":"cancel"},{"bucket":"pending"}]`,
+	}
+	now := time.Unix(1_800_000_000, 0)
+	c := NewCache(gh)
+	c.now = func() time.Time { return now }
+	c.Ref("/repo", "b")
+	c.Wait()
+
+	got := c.Ref("/repo", "b").Checks
+	if want := (Checks{Pass: 130, Fail: 2, Pending: 1}); got != want {
+		t.Errorf("Checks = %+v, want %+v", got, want)
+	}
+	if n := gh.count("pr checks 81940 --json bucket"); n != 1 {
+		t.Errorf("recounted %d times, want 1", n)
+	}
+
+	// The pending check past the first page earns the short TTL.
+	now = now.Add(PendingTTL)
+	c.Ref("/repo", "b")
+	c.Wait()
+	if n := gh.count("pr status"); n != 2 {
+		t.Errorf("looked up %d times after PendingTTL, want 2", n)
+	}
+}
+
+// A rollup short of a full page is complete, and costs no second call.
+func TestAShortRollupIsNotRecounted(t *testing.T) {
+	gh := &fakeGH{prs: rollup(rollupPage - 1)}
+	c := NewCache(gh)
+	c.Ref("/repo", "b")
+	c.Wait()
+
+	if n := gh.count("pr checks"); n != 0 {
+		t.Errorf("recounted %d times for a rollup under one page, want 0", n)
+	}
+	if got := c.Ref("/repo", "b").Checks; got.Pass != rollupPage-1 {
+		t.Errorf("Checks = %+v, want %d passing", got, rollupPage-1)
+	}
+}
+
+// If the recount fails, the first page is still better than nothing.
+func TestAFailedRecountKeepsTheFirstPage(t *testing.T) {
+	gh := &fakeGH{prs: rollup(rollupPage), checks: ""}
+	c := NewCache(gh)
+	c.Ref("/repo", "b")
+	c.Wait()
+
+	if got := c.Ref("/repo", "b").Checks; got.Pass != rollupPage {
+		t.Errorf("Checks = %+v, want the %d from the first page", got, rollupPage)
+	}
+}
+
+func TestChecksStateAndLabel(t *testing.T) {
+	cases := []struct {
+		c            Checks
+		state, label string
+	}{
+		{Checks{}, "", ""},
+		{Checks{Pass: 12}, "pass", "checks passing"},
+		{Checks{Pass: 3, Pending: 14}, "pending", "14 running"},
+		{Checks{Pass: 3, Fail: 2, Pending: 14}, "fail", "2 failing"},
+	}
+	for _, tc := range cases {
+		if s, l := tc.c.State(), tc.c.Label(); s != tc.state || l != tc.label {
+			t.Errorf("%+v: got %q / %q, want %q / %q", tc.c, s, l, tc.state, tc.label)
+		}
+	}
+}
+
+// A run still going is checked on sooner than one that has settled: two
+// minutes is a long time to watch a CI run, and nothing else changes.
+func TestRunningChecksRefreshSooner(t *testing.T) {
+	gh := &fakeGH{prs: status(`{"number":818,"title":"t","state":"OPEN","url":"u","isDraft":true,
+		"statusCheckRollup":[{"__typename":"CheckRun","status":"IN_PROGRESS","conclusion":""}]}`)}
+	now := time.Unix(1_800_000_000, 0)
+	c := NewCache(gh)
+	c.now = func() time.Time { return now }
+
+	c.Ref("/repo", "b")
+	c.Wait()
+	now = now.Add(PendingTTL - time.Second)
+	c.Ref("/repo", "b")
+	c.Wait()
+	if n := gh.count("pr status"); n != 1 {
+		t.Fatalf("looked up %d times inside PendingTTL, want 1", n)
+	}
+
+	now = now.Add(time.Second)
+	c.Ref("/repo", "b")
+	c.Wait()
+	if n := gh.count("pr status"); n != 2 {
+		t.Errorf("looked up %d times once PendingTTL passed, want 2", n)
+	}
+
+	// Once the run settles, the long TTL is back.
+	gh.mu.Lock()
+	gh.prs = onePR
+	gh.mu.Unlock()
+	now = now.Add(PendingTTL)
+	c.Ref("/repo", "b")
+	c.Wait()
+	now = now.Add(PendingTTL)
+	c.Ref("/repo", "b")
+	c.Wait()
+	if n := gh.count("pr status"); n != 3 {
+		t.Errorf("looked up %d times after the checks settled, want 3", n)
 	}
 }
 

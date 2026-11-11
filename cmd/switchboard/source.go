@@ -115,6 +115,10 @@ type appSource struct {
 	// windows is held for the same reason: it caches the iTerm
 	// enumeration that says whether an agent's tty still has a window.
 	windows *target.WindowIndex
+
+	// ledger is held so each poll reads only what was appended since the
+	// last one.
+	ledger *statusline.Ledger
 }
 
 func newAppSource() (*appSource, error) {
@@ -131,6 +135,7 @@ func newAppSource() (*appSource, error) {
 		projectsDir:   projectsDir,
 		statuslineDir: statuslineDir,
 		windows:       target.NewWindowIndex(target.ExecRunner{}, 0),
+		ledger:        statusline.NewLedger(statuslineDir),
 		builder: appui.Builder{
 			ProjectsDir:   projectsDir,
 			StatuslineDir: statuslineDir,
@@ -142,9 +147,12 @@ func newAppSource() (*appSource, error) {
 }
 
 // account is the machine-wide usage the statusline shim recorded, if any,
-// and the Codex account's windows from its rollouts.
+// the day's spend from its ledger, and the Codex account's windows from its
+// rollouts.
 func (s *appSource) account(now time.Time) appui.Account {
-	return appui.AccountUsage(s.statuslineDir, now).WithCodex(codexScanner.Limits(now), now)
+	return appui.AccountUsage(s.statuslineDir, now).
+		WithToday(s.ledger.Day(now), now).
+		WithCodex(codexScanner.Limits(now), now)
 }
 
 // rows scans the registry and enriches what it finds.

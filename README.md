@@ -43,12 +43,25 @@ yesterday. Unlike tmux managers, it sees every agent regardless of how it was
 launched - bare iTerm windows, tmux panes, background and SDK sessions - and
 joins each one to the operating-system window it is sitting in.
 
-![The Switchboard app window: nine Claude Code agents grouped into Needs you, Working, Idle and Shell, each row carrying its status, age, name, context-window meter, repository and branch, the pull request it is on, and a one-line summary. A sidebar counts the queues and the repositories; a readout below the list expands the selected agent](assets/screenshot.png)
+![The Switchboard app window: nine Claude Code agents grouped into Needs you, Working, Idle and Shell, each row carrying a status dot, age, name, context-window meter, the pull request it is on, and a one-line summary. A sidebar counts the queues and repositories and shows the usage windows and today's spend; a readout below the list expands the selected agent](assets/screenshot.png)
 
 ## Install
 
 The repository is `claude-switchboard`; the command it installs is
 `switchboard`.
+
+### With Homebrew
+
+```sh
+brew install adamsilverstein/tap/switchboard          # the CLI
+brew install --cask adamsilverstein/tap/switchboard   # Switchboard.app
+```
+
+The app is a universal binary for Apple Silicon and Intel. Until it is
+notarized, macOS blocks its first launch; the cask prints how to allow it.
+Each [release](https://github.com/adamsilverstein/claude-switchboard/releases)
+also carries the CLI tarballs and `Switchboard-<version>.zip` for a manual
+install.
 
 ### With `go install`
 
@@ -104,10 +117,14 @@ nothing is running right now - start a `claude` session in another window, or
 pass `--all` to include sessions that recently exited.
 
 Listing works anywhere the Claude Code registry (`~/.claude/sessions/`)
-exists. Focusing a window needs macOS with iTerm2, or tmux; the first time
-you press `enter` on a row, macOS asks for permission to control iTerm2.
-Allow it once - the answer is later editable under System Settings ->
-Privacy & Security -> Automation.
+exists. Focusing a window needs macOS with iTerm2, Terminal.app, or Ghostty
+1.4 or later, or tmux inside any of them; the first time you press `enter`
+on a row, macOS asks for permission to control that terminal. Allow it once -
+the answer is later editable under System Settings -> Privacy & Security ->
+Automation.
+
+An agent in some other terminal (WezTerm, kitty, Warp) is still listed. Picking
+it explains that its terminal cannot be focused yet rather than hiding the row.
 
 ### Codex sessions
 
@@ -184,8 +201,11 @@ on, how long it has been running, and which pull request it is working on.
 Filtering and sorting happen in the same Go functions the terminal picker
 calls, so the two cannot disagree about what "sorted by status" means.
 
-The list groups by status - **Needs you**, **Working**, **Idle**, **Ended** -
-whenever it is sorted by status, and goes flat under any other sort. "Needs
+Sorted by status, the list can group into bands - **Needs you**, **Working**,
+**Idle**, **Ended** - and does by default; grouping can be turned off from the
+View menu, and the list is always flat under any other sort. Grouped,
+the band and the dot carry each row's status; flat, the row spells it out.
+"Needs
 you" is derived rather than reported: an idle agent whose last transcript
 entry is its own reply has finished its turn and handed control back. Ended
 agents stay listed, collapsed, and are never dropped.
@@ -199,13 +219,32 @@ branch with no pull request of its own falls back to an issue number in the
 branch name (`1234-retry-on-429`, `issue-11`), and an agent sitting on a
 trunk shows nothing, because a trunk is not a piece of work.
 
+An open or draft pull request also carries one glyph for the most urgent
+thing about it: ✗ failing checks, ● changes requested, ⚠ merge conflicts,
+◌ checks still running, ✓ green, or ◐ a review still to come. The readout
+below the list, and the glyph's tooltip, spell out all of them - "2
+failing · review required" - so an idle agent on a red pull request no
+longer looks the same as one on a green one.
+
 Asking costs a `gh` call per repository, so the answers are cached for two
 minutes and fetched off the poll loop; nothing in the window ever waits on
-the network.
+the network. A pull request with checks still running is asked about again
+after thirty seconds instead, so a CI run is not two minutes stale.
 
 Density follows the window, not the agent count: the page measures how many
-rows it can show and switches to compact when they stop fitting. Compact and
-Comfy, and Grouped and Flat, are also yours to set, and the choice persists.
+rows it can show and switches to compact when they stop fitting. The **View**
+menu beside the filter sets density, grouping and sort, and shows or hides
+columns; the choices persist. Clicking a header sorts by that column, and the
+arrow marks the one in use.
+
+Right-click a row for its actions - focus its window, open its pull request,
+copy its working directory, filter to its repository, stop it - or press
+`shift+F10` for the same menu on the selected row. Right-click the headers to
+show or hide columns, or to reset their widths. Status and name always show.
+
+The window follows the system's light or dark appearance, and every colour in
+both is held to 4.5:1 for text and 3:1 for graphics by a test that reads the
+stylesheet.
 
 Column widths are yours too. A faint divider sits between the headers; drag
 one to move the boundary between two columns, and double-click it to hand
@@ -219,15 +258,21 @@ Keys: arrows or `j`/`k` move, `enter` focuses, `/` filters across name,
 directory, repository, model, pull request and summary, `s`/`a`/`c`/`n`/`r`/`d` sort by
 status, age, context, name, repo or directory, `e` expands the Ended group,
 `space` peeks, `ctrl+x` (then `y`) stops an agent with SIGTERM, `cmd-1` hides the sidebar,
-`q` or `cmd-q` quits. Clicking a row selects it, double-clicking focuses it,
+`q` or `cmd-q` quits, and `?` opens a sheet listing all of them. Clicking a row selects it, double-clicking focuses it,
 and the sidebar's queue, repository and model lists are filters.
 
 The first focus from the app triggers a one-time macOS Automation permission
 prompt for controlling iTerm, attributed to Switchboard rather than to your
 terminal. Closing the window quits the app.
 
-`switchboard app` needs a cgo build (the default on macOS); cross-compiled
-`CGO_ENABLED=0` release binaries print an explanatory error instead.
+`switchboard app` needs a cgo build. That is the default for a local build
+on macOS, and the macOS release binaries are built with cgo too; a
+`CGO_ENABLED=0` build prints an explanatory error instead.
+
+`scripts/make-app.sh` reads three optional environment variables, which the
+release workflow uses: `VERSION` for the bundle version, `ARCHS` (for
+example `"arm64 amd64"`) to merge several architectures into a universal
+binary, and `SIGN_IDENTITY` to sign with a Developer ID instead of ad hoc.
 
 The bundle carries its own icon - a patch panel whose three cords use the same
 colours the picker gives an agent: green for busy, yellow for idle, red for
@@ -309,6 +354,15 @@ With the shim in place the app window gains a context percentage per
 session, a usage cell showing what that session has cost and how its prompt
 cache is holding, and a sidebar panel for the account's rate-limit windows.
 
+It also gains a **Today** panel: the day's total cost, how many sessions ran,
+an hourly sparkline, model time and lines changed, and the day broken down by
+repository and by model. Ended sessions still count. Each time a session's
+totals move, the shim appends one line to
+`~/.claude/switchboard/statusline/ledger/<date>.jsonl`, which is what lets a
+session that runs past midnight be split by day. The dollar figures are what
+Claude Code reports, which on a subscription is the API price of the work
+rather than a bill. Codex sessions report no cost and are not counted.
+
 **Three windows, and no more.** Claude Code reports the five-hour window,
 the seven-day window across all models, and - on gateway accounts - the
 spend limit. The per-model weekly window that `/usage` draws ("Current week
@@ -322,7 +376,7 @@ than shown blank, and the sidebar says how to turn them on. The shim never
 fails: an unreadable payload is dropped and your statusline still renders,
 because losing telemetry for one session is a much smaller problem than
 replacing your prompt with an error message. Files for sessions untouched
-for a month are swept up automatically.
+for a month, and ledger days older than a month, are swept up automatically.
 
 ## How it works
 

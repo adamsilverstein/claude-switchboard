@@ -39,5 +39,5 @@ func locateAgent(a registry.Agent) target.Location {
 	if procs, err := locate.Snapshot([]int{a.PID}); err == nil {
 		tty = procs[a.PID].TTY
 	}
-	return res.Resolve(a.Tmux, tty)
+	return res.Resolve(target.Agent{PID: a.PID, TTY: tty, Tmux: a.Tmux})
 }
