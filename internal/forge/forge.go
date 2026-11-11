@@ -1,5 +1,6 @@
 // Package forge answers one question about a working directory: which pull
-// request or issue the branch checked out there belongs to.
+// request or issue the branch checked out there belongs to, and for a pull
+// request, whether its checks are green and its reviews settled.
 //
 // The answer only exists on GitHub, so it costs a `gh` invocation and a
 // network round trip. That is far too slow to sit in a one second poll, so
@@ -48,6 +49,46 @@ type Ref struct {
 	Title  string
 	URL    string
 	Known  bool
+
+	// Checks, Review and Conflicts are filled in for an open or draft
+	// pull request only. Once it has merged or closed they are history,
+	// and a red cross on a merged row would read as something to do.
+	Checks    Checks
+	Review    string // "approved", "changes", "required", or ""
+	Conflicts bool
+}
+
+// Checks counts a pull request's CI checks by outcome. A skipped or
+// neutral check is in none of the three: it neither passed nor needs you.
+type Checks struct {
+	Pass, Fail, Pending int
+}
+
+// State is the one word the checks come to, worst first: a failure
+// outranks a run still going, because the run will not undo it.
+func (c Checks) State() string {
+	switch {
+	case c.Fail > 0:
+		return "fail"
+	case c.Pending > 0:
+		return "pending"
+	case c.Pass > 0:
+		return "pass"
+	}
+	return ""
+}
+
+// Label is the checks in a phrase: "2 failing", "14 running", "checks".
+func (c Checks) Label() string {
+	switch c.State() {
+	case "fail":
+		return strconv.Itoa(c.Fail) + " failing"
+	case "pending":
+		return strconv.Itoa(c.Pending) + " running"
+	case "pass":
+		return "checks"
+	}
+	return ""
 }
 
 // Label is what the column prints: "#13".
@@ -62,6 +103,19 @@ func (r Ref) Label() string {
 // rather than the git cache's ten seconds because every field here is
 // answered over the network, and none of them changes while you look away.
 const TTL = 2 * time.Minute
+
+// PendingTTL is the TTL for a pull request whose checks are still running.
+// Two minutes is a long time to watch a CI run, and the call is the same
+// one either way: only how soon it is made again changes.
+const PendingTTL = 30 * time.Second
+
+// ttl is how long this answer holds.
+func ttl(r Ref) time.Duration {
+	if r.Checks.Pending > 0 {
+		return PendingTTL
+	}
+	return TTL
+}
 
 type entry struct {
 	ref      Ref
@@ -107,7 +161,7 @@ func (c *Cache) Ref(dir, branch string) Ref {
 		e = &entry{}
 		c.entries[k] = e
 	}
-	stale := !e.ref.Known || c.now().Sub(e.fetched) >= TTL
+	stale := !e.ref.Known || c.now().Sub(e.fetched) >= ttl(e.ref)
 	start := stale && !e.inFlight
 	if start {
 		e.inFlight = true
@@ -173,9 +227,14 @@ func (c *Cache) refresh(k, dir, branch string) {
 // to the wrong agent, which is worse than an empty cell. `pr status` answers
 // for the branch that is actually checked out, and answers nothing on a
 // trunk - which is the right answer, because a trunk is not a piece of work.
+//
+// The checks, review and mergeability ride along on the same call. The
+// check rollup is the bulky part - around 45KB for a gutenberg pull request
+// with 140 checks - but gh fetches it whole either way, so it is summarised
+// here rather than in a --jq filter that would save nothing on the wire.
 func (c *Cache) resolve(dir, branch string) (ref Ref, ghMissing bool) {
 	out, err := c.run.RunIn(dir, "gh", "pr", "status",
-		"--json", "number,title,state,url,isDraft")
+		"--json", "number,title,state,url,isDraft,statusCheckRollup,reviewDecision,mergeable")
 	if err != nil {
 		return Ref{Known: true}, errors.Is(err, exec.ErrNotFound)
 	}
@@ -200,11 +259,67 @@ func (c *Cache) resolve(dir, branch string) (ref Ref, ghMissing bool) {
 // ghPR is the shape gh prints. State arrives shouting - "OPEN", "MERGED" -
 // and a draft is a separate flag rather than a state of its own.
 type ghPR struct {
-	Number  int    `json:"number"`
-	Title   string `json:"title"`
-	State   string `json:"state"`
-	URL     string `json:"url"`
-	IsDraft bool   `json:"isDraft"`
+	Number         int       `json:"number"`
+	Title          string    `json:"title"`
+	State          string    `json:"state"`
+	URL            string    `json:"url"`
+	IsDraft        bool      `json:"isDraft"`
+	Rollup         []ghCheck `json:"statusCheckRollup"`
+	ReviewDecision string    `json:"reviewDecision"`
+	Mergeable      string    `json:"mergeable"`
+}
+
+// ghCheck is one entry in the rollup, which mixes two GitHub types: a
+// CheckRun from Actions and its like, with a status and a conclusion, and a
+// StatusContext from the older commit status API, with a single state.
+type ghCheck struct {
+	Typename   string `json:"__typename"`
+	Status     string `json:"status"`
+	Conclusion string `json:"conclusion"`
+	State      string `json:"state"`
+}
+
+// tally sorts the rollup into passed, failed and still going.
+func tally(rollup []ghCheck) Checks {
+	var c Checks
+	for _, k := range rollup {
+		if k.Typename == "StatusContext" {
+			switch k.State {
+			case "SUCCESS":
+				c.Pass++
+			case "FAILURE", "ERROR":
+				c.Fail++
+			case "PENDING", "EXPECTED":
+				c.Pending++
+			}
+			continue
+		}
+		if k.Status != "COMPLETED" {
+			c.Pending++
+			continue
+		}
+		switch k.Conclusion {
+		case "SUCCESS":
+			c.Pass++
+		case "FAILURE", "TIMED_OUT", "CANCELLED", "ACTION_REQUIRED", "STARTUP_FAILURE":
+			c.Fail++
+		}
+	}
+	return c
+}
+
+// reviewWord shortens gh's review decision. An empty decision means the
+// repository requires no review, which is nothing to show.
+func reviewWord(d string) string {
+	switch d {
+	case "APPROVED":
+		return "approved"
+	case "CHANGES_REQUESTED":
+		return "changes"
+	case "REVIEW_REQUIRED":
+		return "required"
+	}
+	return ""
 }
 
 // currentBranchPR reads the one field of `gh pr status` that matters. A null
@@ -224,7 +339,15 @@ func currentBranchPR(out string) (Ref, bool) {
 	if p.IsDraft && state == "open" {
 		state = "draft"
 	}
-	return Ref{Number: p.Number, Kind: "pr", State: state, Title: p.Title, URL: p.URL, Known: true}, true
+	ref := Ref{Number: p.Number, Kind: "pr", State: state, Title: p.Title, URL: p.URL, Known: true}
+	if state == "open" || state == "draft" {
+		ref.Checks = tally(p.Rollup)
+		ref.Review = reviewWord(p.ReviewDecision)
+		// UNKNOWN is GitHub still working it out, which it does lazily
+		// and often: only a definite conflict is worth a mark.
+		ref.Conflicts = p.Mergeable == "CONFLICTING"
+	}
+	return ref, true
 }
 
 func issue(out string) Ref {

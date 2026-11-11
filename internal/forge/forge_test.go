@@ -94,6 +94,135 @@ func TestDraftIsAStateOfItsOwn(t *testing.T) {
 	}
 }
 
+// The rollup mixes Actions check runs with old-style commit statuses, and
+// both have to land in the same three buckets. Skipped and neutral checks
+// are in none of them.
+func TestChecksReviewAndConflictsRideAlong(t *testing.T) {
+	gh := &fakeGH{prs: status(`{"number":81940,"title":"Fix CI","state":"OPEN","url":"u","isDraft":false,
+		"reviewDecision":"CHANGES_REQUESTED","mergeable":"CONFLICTING",
+		"statusCheckRollup":[
+			{"__typename":"CheckRun","status":"COMPLETED","conclusion":"SUCCESS"},
+			{"__typename":"CheckRun","status":"COMPLETED","conclusion":"SKIPPED"},
+			{"__typename":"CheckRun","status":"COMPLETED","conclusion":"NEUTRAL"},
+			{"__typename":"CheckRun","status":"COMPLETED","conclusion":"FAILURE"},
+			{"__typename":"CheckRun","status":"COMPLETED","conclusion":"TIMED_OUT"},
+			{"__typename":"CheckRun","status":"IN_PROGRESS","conclusion":""},
+			{"__typename":"CheckRun","status":"QUEUED","conclusion":""},
+			{"__typename":"StatusContext","state":"SUCCESS"},
+			{"__typename":"StatusContext","state":"ERROR"},
+			{"__typename":"StatusContext","state":"PENDING"}
+		]}`)}
+	c := NewCache(gh)
+	c.Ref("/repo", "fix-ci")
+	c.Wait()
+
+	got := c.Ref("/repo", "fix-ci")
+	want := Checks{Pass: 2, Fail: 3, Pending: 3}
+	if got.Checks != want {
+		t.Errorf("Checks = %+v, want %+v", got.Checks, want)
+	}
+	if got.Checks.State() != "fail" || got.Checks.Label() != "3 failing" {
+		t.Errorf("checks read %q / %q, want fail / 3 failing", got.Checks.State(), got.Checks.Label())
+	}
+	if got.Review != "changes" {
+		t.Errorf("Review = %q, want %q", got.Review, "changes")
+	}
+	if !got.Conflicts {
+		t.Error("Conflicts = false, want true")
+	}
+	if n := gh.count("statusCheckRollup,reviewDecision,mergeable"); n != 1 {
+		t.Errorf("asked for the extra fields %d times, want once, on the same call", n)
+	}
+}
+
+// A merged pull request's checks are history. Neither they nor a conflict
+// GitHub no longer bothers to recompute should put a mark on the row.
+func TestMergedPullRequestCarriesNoChecks(t *testing.T) {
+	gh := &fakeGH{prs: status(`{"number":10,"title":"Done","state":"MERGED","url":"u","isDraft":false,
+		"reviewDecision":"APPROVED","mergeable":"CONFLICTING",
+		"statusCheckRollup":[{"__typename":"CheckRun","status":"COMPLETED","conclusion":"FAILURE"}]}`)}
+	c := NewCache(gh)
+	c.Ref("/repo", "done")
+	c.Wait()
+
+	got := c.Ref("/repo", "done")
+	if got.Checks != (Checks{}) || got.Review != "" || got.Conflicts {
+		t.Errorf("Ref = %+v, want no checks, review or conflicts on a merged pull request", got)
+	}
+}
+
+// GitHub works mergeability out lazily and says UNKNOWN until it has.
+// That is not a conflict.
+func TestUnknownMergeabilityIsNotAConflict(t *testing.T) {
+	gh := &fakeGH{prs: status(`{"number":13,"title":"t","state":"OPEN","url":"u","isDraft":false,
+		"reviewDecision":"","mergeable":"UNKNOWN","statusCheckRollup":[]}`)}
+	c := NewCache(gh)
+	c.Ref("/repo", "b")
+	c.Wait()
+
+	got := c.Ref("/repo", "b")
+	if got.Conflicts || got.Review != "" || got.Checks.State() != "" {
+		t.Errorf("Ref = %+v, want nothing to mark", got)
+	}
+}
+
+func TestChecksStateAndLabel(t *testing.T) {
+	cases := []struct {
+		c            Checks
+		state, label string
+	}{
+		{Checks{}, "", ""},
+		{Checks{Pass: 12}, "pass", "checks"},
+		{Checks{Pass: 3, Pending: 14}, "pending", "14 running"},
+		{Checks{Pass: 3, Fail: 2, Pending: 14}, "fail", "2 failing"},
+	}
+	for _, tc := range cases {
+		if s, l := tc.c.State(), tc.c.Label(); s != tc.state || l != tc.label {
+			t.Errorf("%+v: got %q / %q, want %q / %q", tc.c, s, l, tc.state, tc.label)
+		}
+	}
+}
+
+// A run still going is checked on sooner than one that has settled: two
+// minutes is a long time to watch a CI run, and nothing else changes.
+func TestRunningChecksRefreshSooner(t *testing.T) {
+	gh := &fakeGH{prs: status(`{"number":818,"title":"t","state":"OPEN","url":"u","isDraft":true,
+		"statusCheckRollup":[{"__typename":"CheckRun","status":"IN_PROGRESS","conclusion":""}]}`)}
+	now := time.Unix(1_800_000_000, 0)
+	c := NewCache(gh)
+	c.now = func() time.Time { return now }
+
+	c.Ref("/repo", "b")
+	c.Wait()
+	now = now.Add(PendingTTL - time.Second)
+	c.Ref("/repo", "b")
+	c.Wait()
+	if n := gh.count("pr status"); n != 1 {
+		t.Fatalf("looked up %d times inside PendingTTL, want 1", n)
+	}
+
+	now = now.Add(time.Second)
+	c.Ref("/repo", "b")
+	c.Wait()
+	if n := gh.count("pr status"); n != 2 {
+		t.Errorf("looked up %d times once PendingTTL passed, want 2", n)
+	}
+
+	// Once the run settles, the long TTL is back.
+	gh.mu.Lock()
+	gh.prs = onePR
+	gh.mu.Unlock()
+	now = now.Add(PendingTTL)
+	c.Ref("/repo", "b")
+	c.Wait()
+	now = now.Add(PendingTTL)
+	c.Ref("/repo", "b")
+	c.Wait()
+	if n := gh.count("pr status"); n != 3 {
+		t.Errorf("looked up %d times after the checks settled, want 3", n)
+	}
+}
+
 // Eighteen agents across four branches must cost four lookups, not eighteen,
 // and repeated polls inside the TTL must cost none.
 func TestOneLookupPerBranchPerTTL(t *testing.T) {
