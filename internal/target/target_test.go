@@ -60,23 +60,41 @@ func TestParseTmuxRef(t *testing.T) {
 
 // fakeRunner serves canned output per command name and records calls.
 type fakeRunner struct {
-	iterm    string
-	itermErr error
-	tmux     string
-	tmuxErr  error
-	ps       string
-	psErr    error
-	calls    []string
+	iterm       string
+	itermErr    error
+	terminal    string
+	terminalErr error
+	ghostty     string
+	ghosttyErr  error
+	tree        string // ps -axo pid=,ppid=,comm=
+	tmux        string
+	tmuxErr     error
+	ps          string
+	psErr       error
+	calls       []string
 }
 
 func (f *fakeRunner) Run(name string, args ...string) (string, error) {
 	f.calls = append(f.calls, name+" "+strings.Join(args, " "))
 	switch name {
 	case "osascript":
+		script := strings.Join(args, " ")
+		switch {
+		case strings.Contains(script, "com.apple.Terminal"):
+			return f.terminal, f.terminalErr
+		case strings.Contains(script, "com.mitchellh.ghostty"):
+			if f.ghostty == "" && f.ghosttyErr == nil {
+				return "", fmt.Errorf("Can't get application id \"com.mitchellh.ghostty\"")
+			}
+			return f.ghostty, f.ghosttyErr
+		}
 		return f.iterm, f.itermErr
 	case "tmux":
 		return f.tmux, f.tmuxErr
 	case "ps":
+		if strings.Contains(strings.Join(args, " "), "ppid") {
+			return f.tree, nil
+		}
 		return f.ps, f.psErr
 	}
 	return "", fmt.Errorf("unexpected command %s", name)
@@ -84,7 +102,7 @@ func (f *fakeRunner) Run(name string, args ...string) (string, error) {
 
 func TestResolveItermAgent(t *testing.T) {
 	res := NewResolver(&fakeRunner{iterm: itermOutput})
-	loc := res.Resolve("", "/dev/ttys008")
+	loc := res.Resolve(Agent{TTY: "/dev/ttys008"})
 	if !loc.Focusable {
 		t.Fatalf("not focusable: %s", loc.Reason)
 	}
@@ -101,7 +119,7 @@ func TestResolveItermAgent(t *testing.T) {
 
 func TestResolveAgentWithNoTTY(t *testing.T) {
 	res := NewResolver(&fakeRunner{iterm: itermOutput})
-	loc := res.Resolve("", "")
+	loc := res.Resolve(Agent{TTY: ""})
 	if loc.Focusable {
 		t.Error("agent with no tty should not be focusable")
 	}
@@ -112,7 +130,7 @@ func TestResolveAgentWithNoTTY(t *testing.T) {
 
 func TestResolveUnknownTTY(t *testing.T) {
 	res := NewResolver(&fakeRunner{iterm: itermOutput})
-	loc := res.Resolve("", "/dev/ttys099")
+	loc := res.Resolve(Agent{TTY: "/dev/ttys099"})
 	if loc.Focusable {
 		t.Error("unknown tty should not be focusable")
 	}
@@ -123,7 +141,7 @@ func TestResolveUnknownTTY(t *testing.T) {
 
 func TestResolveSurvivesItermFailure(t *testing.T) {
 	res := NewResolver(&fakeRunner{itermErr: fmt.Errorf("iTerm got an error: not running")})
-	loc := res.Resolve("", "/dev/ttys008")
+	loc := res.Resolve(Agent{TTY: "/dev/ttys008"})
 	if loc.Focusable {
 		t.Error("should not be focusable when iTerm enumeration failed")
 	}
@@ -135,7 +153,7 @@ func TestResolveSurvivesItermFailure(t *testing.T) {
 func TestResolveTmuxAttachedToIterm(t *testing.T) {
 	r := &fakeRunner{iterm: itermOutput, tmux: "/dev/ttys002\n"}
 	res := NewResolver(r)
-	loc := res.Resolve("claude-e96b2a6e:@2.%2", "")
+	loc := res.Resolve(Agent{Tmux: "claude-e96b2a6e:@2.%2"})
 	if !loc.Focusable {
 		t.Fatalf("not focusable: %s", loc.Reason)
 	}
@@ -157,7 +175,7 @@ func TestResolveTmuxAttachedToIterm(t *testing.T) {
 
 func TestResolveTmuxDetached(t *testing.T) {
 	res := NewResolver(&fakeRunner{iterm: itermOutput, tmux: "\n"})
-	loc := res.Resolve("claude-e96b2a6e:@2.%2", "")
+	loc := res.Resolve(Agent{Tmux: "claude-e96b2a6e:@2.%2"})
 	if loc.Focusable {
 		t.Error("detached tmux session should not be focusable")
 	}
@@ -168,11 +186,11 @@ func TestResolveTmuxDetached(t *testing.T) {
 
 func TestResolveTmuxClientOutsideIterm(t *testing.T) {
 	res := NewResolver(&fakeRunner{iterm: itermOutput, tmux: "/dev/ttys777\n"})
-	loc := res.Resolve("claude-e96b2a6e:@2.%2", "")
+	loc := res.Resolve(Agent{Tmux: "claude-e96b2a6e:@2.%2"})
 	if !loc.Focusable {
 		t.Fatalf("not focusable: %s", loc.Reason)
 	}
-	// Only the tmux selects: the hosting terminal is not an iTerm window,
+	// Only the tmux selects: the hosting terminal is not one switchboard can raise,
 	// so there is nothing to raise, but the pane can still be shown.
 	if len(loc.Commands) != 2 || loc.Commands[0].Name != "tmux" {
 		t.Errorf("Commands = %+v", loc.Commands)
