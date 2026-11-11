@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/adamsilverstein/claude-switchboard/internal/forge"
 	"github.com/adamsilverstein/claude-switchboard/internal/registry"
 )
 
@@ -146,5 +147,61 @@ func TestParseSortKeyFallsBackToStatus(t *testing.T) {
 		if got := ParseSortKey(name); got != want {
 			t.Errorf("ParseSortKey(%q) = %v, want %v", name, got, want)
 		}
+	}
+}
+
+func doneRow(pid int, name, status, kind, state string) Row {
+	return Row{
+		Agent: registry.Agent{PID: pid, Status: status, Live: true},
+		Name:  name,
+		Age:   base.Add(-time.Duration(pid) * time.Minute),
+		Telemetry: Telemetry{
+			Waiting: status == "idle",
+			Ref:     forge.Ref{Number: pid, Kind: kind, State: state, Known: true},
+		},
+	}
+}
+
+// Done is idle and shipped. Every other combination is still live work, or
+// has nothing to say about whether the work landed.
+func TestDoneIsIdleOnAMergedOrClosedPullRequest(t *testing.T) {
+	for _, tc := range []struct {
+		row  Row
+		want bool
+	}{
+		{doneRow(1, "merged", "idle", "pr", "merged"), true},
+		{doneRow(2, "closed", "idle", "pr", "closed"), true},
+		{doneRow(3, "open", "idle", "pr", "open"), false},
+		{doneRow(4, "draft", "idle", "pr", "draft"), false},
+		{doneRow(5, "mid-turn", "busy", "pr", "merged"), false},
+		{doneRow(6, "in a shell", "shell", "pr", "merged"), false},
+		{doneRow(7, "closed issue", "idle", "issue", "closed"), false},
+		{doneRow(8, "no ref", "idle", "", ""), false},
+	} {
+		if got := tc.row.Done(); got != tc.want {
+			t.Errorf("%s: Done() = %v, want %v", tc.row.Name, got, tc.want)
+		}
+	}
+	gone := doneRow(9, "gone", "idle", "pr", "merged")
+	gone.Agent.Live = false
+	if gone.Done() {
+		t.Error("a dead agent is ended, not done")
+	}
+}
+
+// A finished agent leaves Needs you and goes below every live queue, but
+// stays above the ended rows.
+func TestDoneSortsAfterLiveWorkAndBeforeEnded(t *testing.T) {
+	dead := Row{Agent: registry.Agent{PID: 10, Status: "idle"}, Name: "dead"}
+	rows := []Row{
+		doneRow(1, "done", "idle", "pr", "merged"),
+		dead,
+		doneRow(2, "waiting", "idle", "pr", "open"),
+		doneRow(3, "busy", "busy", "pr", "merged"),
+		{Agent: registry.Agent{PID: 4, Status: "shell", Live: true}, Name: "shell"},
+	}
+	SortRows(rows, SortStatus)
+	if got, want := names(rows), "waiting,busy,shell,done,dead"; got != want {
+		t.Errorf("order = %q, want %q", got, want)
 	}
 }
