@@ -15,15 +15,16 @@ const $ = (id) => document.getElementById(id);
 // internal/ui/model.go, checked by a test that reads this line. The cursor
 // walks the list in Go's order, so a band drawn out of that order sends the
 // selection jumping up the screen past rows it never landed on.
-const STATUS_ORDER = ["waiting", "idle", "busy", "shell"];
+const STATUS_ORDER = ["waiting", "idle", "busy", "shell", "done"];
 const ENDED = "dead";
-const BAND_LABEL = { waiting: "Needs you", busy: "Working", idle: "Idle", shell: "Shell", dead: "Ended" };
-const QUEUE = ["waiting", "idle", "busy", "dead"];
+const DONE = "done";
+const BAND_LABEL = { waiting: "Needs you", busy: "Working", idle: "Idle", shell: "Shell", done: "Done", dead: "Ended" };
+const QUEUE = ["waiting", "idle", "busy", "done", "dead"];
 const SORT_KEYS = [
   ["status", "Status"], ["age", "Age"], ["context", "Context"],
   ["name", "Name"], ["repo", "Repo"], ["dir", "Dir"],
 ];
-const ABBREV = { waiting: "wait", busy: "busy", idle: "idle", shell: "shell", dead: "dead" };
+const ABBREV = { waiting: "wait", busy: "busy", idle: "idle", shell: "shell", done: "done", dead: "dead" };
 
 // Thresholds the design fixes: a context bar goes red once compaction is
 // close, and a usage meter once more than half the window is spent.
@@ -59,6 +60,7 @@ const state = {
   capacity: 0,
   typing: false,
   confirmingStop: null,
+  confirmingSweep: null, // the done agents a pending sweep would stop
   showDoneSubagents: false, // one choice for every session, not per row
   noticeTimer: null,
   columns: {},      // column name -> pixel width you dragged it to
@@ -554,7 +556,7 @@ function bands(rows) {
 
 const BAND_COLOUR = {
   waiting: "var(--alert)", busy: "var(--busy)", idle: "var(--idle)",
-  shell: "var(--accent-ink)", dead: "var(--muted)",
+  shell: "var(--accent-ink)", done: "var(--accent-ink)", dead: "var(--muted)",
 };
 
 function bandEl(status, n) {
@@ -567,6 +569,13 @@ function bandEl(status, n) {
       ? "collapsed - press e to expand"
       : "press e to collapse"));
     b.onclick = toggleEnded;
+  }
+  if (status === DONE) {
+    const sweep = el("button", "sweep", "Sweep ⇧X");
+    sweep.type = "button";
+    sweep.title = "Stop every agent in this group and close its iTerm session";
+    sweep.onclick = (e) => { e.stopPropagation(); sweepDone(); };
+    b.append(sweep);
   }
   return b;
 }
@@ -931,6 +940,31 @@ function stopAgent() {
   notice("stop “" + a.name + "” (SIGTERM pid " + a.pid + ")? y/N", true);
 }
 
+// sweepDone asks once before stopping every agent in the Done band. An agent
+// with uncommitted changes is left out and named, because a dirty tree on a
+// merged branch usually means the follow-up has already started.
+//
+// Go decides again, row by row, whether each agent is still done and still
+// clean before it signals anything; this list is only what you agreed to.
+function sweepDone() {
+  const done = agents().filter((a) => a.status === DONE && a.live);
+  if (!done.length) { notice("nothing in Done to sweep"); return; }
+  const clean = done.filter((a) => !a.dirty);
+  const dirty = done.filter((a) => a.dirty);
+  const skip = dirty.length ? " - skipping " + names(dirty) + " (uncommitted changes)" : "";
+  if (!clean.length) { notice("nothing to sweep" + skip, true); return; }
+  state.confirmingSweep = clean;
+  notice("sweep " + clean.length + " done (" + names(clean) + "): stop each and close its session?" + skip + " y/N", true);
+}
+
+// names lists agents for a one-line notice, cutting off before the line
+// wraps rather than after.
+function names(list) {
+  const shown = list.slice(0, 3).map((a) => "“" + a.name + "”");
+  if (list.length > 3) shown.push((list.length - 3) + " more");
+  return shown.join(", ");
+}
+
 function toggleEnded() {
   if (state.collapsed.has(ENDED)) state.collapsed.delete(ENDED);
   else state.collapsed.add(ENDED);
@@ -970,6 +1004,17 @@ window.addEventListener("keydown", (e) => {
     return;
   }
 
+  if (state.confirmingSweep) {
+    const list = state.confirmingSweep;
+    state.confirmingSweep = null;
+    e.preventDefault();
+    if (e.key === "y") {
+      notice("sweeping " + list.length + "…");
+      send({ cmd: "sweep", agents: list.map((a) => ({ pid: a.pid, sessionId: a.sessionId })) });
+    } else notice("sweep cancelled");
+    return;
+  }
+
   if (state.typing) {
     if (e.key === "Escape") { e.preventDefault(); setFilter(""); $("filterInput").blur(); }
     else if (e.key === "Enter") { e.preventDefault(); $("filterInput").blur(); }
@@ -989,6 +1034,7 @@ window.addEventListener("keydown", (e) => {
     case "g": e.preventDefault(); moveCursor(-1e6); return;
     case "G": e.preventDefault(); moveCursor(1e6); return;
     case "e": e.preventDefault(); toggleEnded(); return;
+    case "X": if (e.ctrlKey || e.metaKey) break; e.preventDefault(); sweepDone(); return;
     case "q": e.preventDefault(); send({ cmd: "quit" }); return;
   }
   if (e.ctrlKey && e.key.toLowerCase() === "x") { e.preventDefault(); stopAgent(); return; }

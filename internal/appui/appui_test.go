@@ -521,3 +521,39 @@ func TestThePageAndGoAgreeOnTheNarrowestColumn(t *testing.T) {
 		t.Errorf("console.js clamps a drag at %spx but minColumnPx is %d", m[1], minColumnPx)
 	}
 }
+
+// An idle agent on a merged pull request reads as done, not as waiting on
+// you, and only a row that still reads as done can be swept.
+func TestDoneRowsReadAsDoneAndOnlyTheyAreSweepable(t *testing.T) {
+	c := New(filepath.Join(t.TempDir(), "app.json"))
+	rs := rows()
+	rs[0].Telemetry.Ref.State = "merged"
+	c.SetRows(rs, Account{}, nil, now)
+
+	s := c.Snapshot(now)
+	var got string
+	for _, a := range s.Agents {
+		if a.PID == 1 {
+			got = a.Status
+		}
+	}
+	if got != "done" {
+		t.Errorf("merged idle agent status = %q, want done", got)
+	}
+	if _, ok := c.Sweepable(1, "s1"); !ok {
+		t.Error("a done agent should be sweepable")
+	}
+	if _, ok := c.Sweepable(1, "other"); ok {
+		t.Error("sweepable matched a PID without its session")
+	}
+	if _, ok := c.Sweepable(2, "s2"); ok {
+		t.Error("a busy agent was sweepable")
+	}
+
+	// The branch moved on to new work since the page drew the list.
+	rs[0].Telemetry.Ref.State = "open"
+	c.SetRows(rs, Account{}, nil, now)
+	if _, ok := c.Sweepable(1, "s1"); ok {
+		t.Error("an agent whose pull request reopened was still sweepable")
+	}
+}
