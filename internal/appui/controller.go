@@ -350,9 +350,9 @@ type Action struct {
 	// new frame now, rather than waiting up to a second for the poll.
 	Repaint bool
 
-	// Kind is "focus", "stop", "open", "quit", or "" when the command
-	// was fully handled here. Focus and stop carry the agent they refer
-	// to; open carries the URL.
+	// Kind is "focus", "stop", "copy", "open", "quit", or "" when the
+	// command was fully handled here. Focus, stop and copy carry the
+	// agent they refer to; open carries the URL.
 	Kind      string
 	PID       int
 	SessionID string
@@ -408,7 +408,7 @@ func (c *Controller) Handle(raw string) Action {
 		return Action{}
 	case "hide":
 		return Action{Repaint: c.SetHidden(m.Col, m.On)}
-	case "focus", "stop":
+	case "focus", "stop", "copy":
 		return Action{Kind: m.Cmd, PID: m.PID, SessionID: m.SessionID}
 	case "open":
 		// Only a URL this build produced can be opened. Every one of

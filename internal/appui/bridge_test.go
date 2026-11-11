@@ -79,6 +79,10 @@ func TestHandleAppliesEveryCommandThePageSends(t *testing.T) {
 	if act.Kind != "focus" || act.PID != 1 || act.SessionID != "s1" {
 		t.Errorf("focus = %+v, want {focus 1 s1}", act)
 	}
+	act = c.Handle(`{"cmd":"copy","pid":1,"sessionId":"s1"}`)
+	if act.Kind != "copy" || act.PID != 1 || act.SessionID != "s1" {
+		t.Errorf("copy = %+v, want {copy 1 s1}", act)
+	}
 	act = c.Handle(`{"cmd":"stop","pid":2,"sessionId":"s2"}`)
 	if act.Kind != "stop" || act.PID != 2 || act.SessionID != "s2" {
 		t.Errorf("stop = %+v, want {stop 2 s2}", act)

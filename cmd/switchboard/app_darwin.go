@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os/exec"
+	"strings"
 	"sync"
 	"time"
 
@@ -191,5 +192,19 @@ func perform(control *appui.Controller, act appui.Action, notice func(string, bo
 			return
 		}
 		notice(fmt.Sprintf("sent SIGTERM to %s", agent.Name), false)
+	case "copy":
+		if err := copyText(agent.Cwd); err != nil {
+			notice("could not copy: "+err.Error(), true)
+			return
+		}
+		notice("copied "+agent.Cwd, false)
 	}
+}
+
+// copyText puts text on the clipboard. The page cannot: it is loaded with
+// no origin, and WebKit withholds navigator.clipboard from such a page.
+func copyText(text string) error {
+	cmd := exec.Command("pbcopy")
+	cmd.Stdin = strings.NewReader(text)
+	return cmd.Run()
 }

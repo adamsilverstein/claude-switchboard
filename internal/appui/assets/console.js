@@ -1046,12 +1046,14 @@ function setFilter(q) {
   send({ cmd: "filter", q: q });
 }
 
+// The copy happens on the Go side. The window loads this page with no
+// origin of its own, and WebKit gives such a page no clipboard: the call
+// throws before it can even fail. Only the agent is named, so the path that
+// lands on the clipboard is the one Go has on record, not one from the page.
 function copyCwd() {
   const a = selected();
   if (!a) return;
-  navigator.clipboard.writeText(a.cwd).then(
-    () => notice("copied " + a.cwdShort),
-    () => notice("could not copy", true));
+  send({ cmd: "copy", pid: a.pid, sessionId: a.sessionId });
 }
 
 function openRef() {
