@@ -65,10 +65,11 @@ func (res *Resolver) Resolve(tmuxField, tty string) Location {
 		}
 	}
 	return Location{
-		Backend:   "iterm",
-		Desc:      fmt.Sprintf("iTerm window %d, tab %d, session %d (%s)", s.WindowIndex, s.TabIndex, s.SessionIndex, tty),
-		Focusable: true,
-		Commands:  []Command{FocusCommand(s)},
+		Backend:       "iterm",
+		Desc:          fmt.Sprintf("iTerm window %d, tab %d, session %d (%s)", s.WindowIndex, s.TabIndex, s.SessionIndex, tty),
+		Focusable:     true,
+		Commands:      []Command{FocusCommand(s)},
+		CloseCommands: []Command{CloseCommand(s)},
 	}
 }
 

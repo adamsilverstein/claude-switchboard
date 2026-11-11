@@ -56,6 +56,13 @@ type Location struct {
 	Focusable bool
 	Reason    string    // why not focusable, when Focusable is false
 	Commands  []Command // the steps Focus runs, in order
+
+	// CloseCommands close the terminal session the agent ran in, and
+	// are set only when that session is the agent's own: a plain iTerm
+	// pane. A tmux pane's host window holds the whole tmux session, and
+	// a background agent's viewer shows every background job, so
+	// closing either would take other work down with it.
+	CloseCommands []Command
 }
 
 // Focus runs a location's commands in order. The iTerm focus script reports
@@ -72,6 +79,25 @@ func Focus(r Runner, loc Location) error {
 		}
 		if strings.TrimSpace(out) == "not found" {
 			return fmt.Errorf("window disappeared before it could be focused")
+		}
+	}
+	return nil
+}
+
+// Close runs a location's close commands. Callers stop the agent first and
+// wait for it to exit; closing a session with the agent still in it would
+// hang it up mid-shutdown.
+func Close(r Runner, loc Location) error {
+	if len(loc.CloseCommands) == 0 {
+		return fmt.Errorf("cannot close: not a session of its own")
+	}
+	for _, c := range loc.CloseCommands {
+		out, err := r.Run(c.Name, c.Args...)
+		if err != nil {
+			return fmt.Errorf("%s: %w", c.String(), err)
+		}
+		if strings.TrimSpace(out) == "not found" {
+			return fmt.Errorf("session already closed")
 		}
 	}
 	return nil

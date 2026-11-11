@@ -268,3 +268,40 @@ func TestFocusScriptSelectsAroundActivate(t *testing.T) {
 		}
 	}
 }
+
+// Only a plain iTerm pane is the agent's own to close. A tmux host window
+// and a background viewer show other work too.
+func TestOnlyAnItermPaneCanBeClosed(t *testing.T) {
+	r := &fakeRunner{iterm: itermOutput, tmux: "/dev/ttys002\n"}
+	res := NewResolver(r)
+
+	pane := res.Resolve("", "/dev/ttys008")
+	if len(pane.CloseCommands) != 1 {
+		t.Fatalf("iTerm pane CloseCommands = %+v, want one", pane.CloseCommands)
+	}
+	args := strings.Join(pane.CloseCommands[0].Args, " ")
+	if !strings.Contains(args, "AD11FD11-0C65-4C91-A002-D39BB6810C21") || !strings.Contains(args, "close s") {
+		t.Error("close command should close the session by its UUID")
+	}
+	if strings.Contains(args, "close w") {
+		t.Error("close command must not close a whole window")
+	}
+
+	if tm := res.Resolve("claude-e96b2a6e:@2.%2", ""); len(tm.CloseCommands) != 0 {
+		t.Error("a tmux agent's host window must not be closable")
+	}
+	if err := Close(r, res.Resolve("claude-e96b2a6e:@2.%2", "")); err == nil {
+		t.Error("Close on a tmux location should refuse")
+	}
+}
+
+func TestCloseReportsAVanishedSession(t *testing.T) {
+	res := NewResolver(&fakeRunner{iterm: itermOutput})
+	loc := res.Resolve("", "/dev/ttys008")
+	if err := Close(&fakeRunner{iterm: "not found\n"}, loc); err == nil {
+		t.Error("a session that was already gone should be reported")
+	}
+	if err := Close(&fakeRunner{iterm: "ok\n"}, loc); err != nil {
+		t.Errorf("Close = %v", err)
+	}
+}

@@ -40,6 +40,9 @@ func TestResolveBackgroundViaViewer(t *testing.T) {
 	if len(loc.Commands) != 1 || !strings.Contains(strings.Join(loc.Commands[0].Args, " "), "47B06502-33AD-48BD-A678-8C24E78B6F7A") {
 		t.Errorf("Commands = %+v, want the viewer's session UUID", loc.Commands)
 	}
+	if len(loc.CloseCommands) != 0 {
+		t.Error("the viewer shows every background job and must not be closable")
+	}
 }
 
 func TestResolveBackgroundPrefersFrontmostViewer(t *testing.T) {
