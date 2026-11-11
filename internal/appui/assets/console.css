@@ -304,7 +304,20 @@ kbd {
 .meter .big b { font-family: var(--mono); font-size: var(--fs-1); font-weight: 500; color: var(--text); }
 .meter .big span { display: none; }
 .meter .bar { order: 2; height: 6px; }
-.meter:hover > .label { color: var(--text); }
+.meter:hover > .label, .meter:focus-visible > .label { color: var(--text); }
+/* When it resets is the detail: it is read out with the meter, and shown
+ * under it on hover or keyboard focus, so it is never pointer-only. */
+.meter:is(:hover, :focus-visible) > .note.sr {
+  position: static;
+  grid-column: 1 / -1;
+  width: auto;
+  height: auto;
+  clip-path: none;
+  margin-top: -2px;
+  font-family: var(--mono);
+  font-size: var(--fs-1);
+  color: var(--muted);
+}
 
 .bar { display: flex; gap: 1px; height: 8px; }
 .bar i { display: block; background: var(--accent); }

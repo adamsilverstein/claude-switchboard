@@ -30,21 +30,21 @@
          simply never appears. -->
     <div id="usage" hidden>
       <span class="label">Usage</span>
-      <div class="meter" id="usage5h" hidden>
+      <div class="meter" tabindex="0" id="usage5h" hidden>
         <span class="label">5 hours</span>
         <div class="big"><b id="usage5hPct"></b><span>of window</span></div>
         <div class="bar" id="usage5hBar"><i></i><u></u></div>
         <span class="note sr" id="usage5hNote"></span>
       </div>
 
-      <div class="meter" id="usage7d" hidden>
+      <div class="meter" tabindex="0" id="usage7d" hidden>
         <span class="label" data-full="Week, all models">Week</span>
         <div class="big"><b id="usage7dPct"></b><span>of window</span></div>
         <div class="bar" id="usage7dBar"><i></i><u></u></div>
         <span class="note sr" id="usage7dNote"></span>
       </div>
 
-      <div class="meter" id="usageSpend" hidden>
+      <div class="meter" tabindex="0" id="usageSpend" hidden>
         <span class="label">Spend limit</span>
         <div class="big"><b id="usageSpendPct"></b><span>of budget</span></div>
         <div class="bar" id="usageSpendBar"><i></i><u></u></div>
@@ -80,14 +80,14 @@
          as one budget. Hidden on a machine with no Codex reading. -->
     <div id="codexusage" hidden>
       <span class="label">Codex usage</span>
-      <div class="meter" id="codex5h" hidden>
+      <div class="meter" tabindex="0" id="codex5h" hidden>
         <span class="label">5 hours</span>
         <div class="big"><b id="codex5hPct"></b><span>of window</span></div>
         <div class="bar" id="codex5hBar"><i></i><u></u></div>
         <span class="note sr" id="codex5hNote"></span>
       </div>
 
-      <div class="meter" id="codex7d" hidden>
+      <div class="meter" tabindex="0" id="codex7d" hidden>
         <span class="label">Week</span>
         <div class="big"><b id="codex7dPct"></b><span>of window</span></div>
         <div class="bar" id="codex7dBar"><i></i><u></u></div>
@@ -194,7 +194,7 @@
         <dl>
           <dt><kbd>&#9166;</kbd></dt><dd>Focus the agent's window</dd>
           <dt><kbd>&#8963;X</kbd></dt><dd>Stop the agent, then <kbd>y</kbd> to confirm</dd>
-          <dt><kbd>&#8679;F10</kbd></dt><dd>Actions for the selected agent</dd>
+          <dt><kbd>&#8679;F10</kbd></dt><dd>Actions for the selected agent, or columns on a header</dd>
         </dl>
       </section>
     </div>

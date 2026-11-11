@@ -200,8 +200,9 @@ on, how long it has been running, and which pull request it is working on.
 Filtering and sorting happen in the same Go functions the terminal picker
 calls, so the two cannot disagree about what "sorted by status" means.
 
-The list groups by status - **Needs you**, **Working**, **Idle**, **Ended** -
-whenever it is sorted by status, and goes flat under any other sort. Grouped,
+Sorted by status, the list can group into bands - **Needs you**, **Working**,
+**Idle**, **Ended** - and does by default; grouping can be turned off from the
+View menu, and the list is always flat under any other sort. Grouped,
 the band and the dot carry each row's status; flat, the row spells it out.
 "Needs
 you" is derived rather than reported: an idle agent whose last transcript
