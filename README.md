@@ -195,9 +195,10 @@ every live queue. An agent mid-turn on a merged branch stays in Working - it
 may be writing the follow-up. `shift-X`, or the band's Sweep button, stops
 the whole group in one go: it asks once, naming the agents it is about to
 stop, and leaves out any whose working tree has uncommitted changes. Each
-agent is checked again - still done, still clean - just before it is
-signalled. Once a stopped agent has exited, the iTerm session it ran in is
-closed (the pane, not the window, so other tabs survive). A tmux pane or a
+agent is checked again - still idle on the same branch, still clean -
+just before it is signalled. Once a stopped agent has exited and nothing but
+the shell is left on its terminal, the iTerm session it ran in is closed
+(the pane, not the window, so other tabs survive). A tmux pane or a
 background job's viewer is never closed, because it shows other work too.
 Worktrees are left alone.
 
