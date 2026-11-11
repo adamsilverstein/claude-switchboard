@@ -224,9 +224,10 @@ html, body {
 /* The day's spend. Framed like the meters it sits under, since it reads
  * against them, but one panel: the breakdowns are parts of the one total. */
 .ledger { display: flex; flex-direction: column; gap: 10px; padding: 12px; border: 1px solid var(--rule-frame); }
-.ledger .big { display: flex; align-items: baseline; gap: 8px; }
+.ledger .big { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; }
 .ledger .big b { font-family: var(--cond); font-weight: 700; font-size: 30px; line-height: 1; }
 .ledger .big span, .ledger > .note { font-family: var(--mono); font-size: 10.5px; color: var(--muted); }
+.ledger .big span, .ledger > .note span { white-space: nowrap; }
 /* One bar per hour since midnight. Heights are relative to the day's
  * busiest hour; an hour with no spend keeps a hairline so the run of hours
  * still reads as a timeline. */

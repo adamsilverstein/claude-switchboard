@@ -471,9 +471,16 @@ function renderToday(t) {
   $("today").hidden = !t;
   if (!t) return;
   $("todayCost").textContent = t.cost;
-  $("todaySessions").textContent = t.sessions + (t.sessions === 1 ? " session" : " sessions");
-  $("todayNote").textContent = [t.api ? t.api + " model time" : "", t.lines || ""].filter(Boolean).join(" · ");
-  $("todayNote").hidden = !t.api && !t.lines;
+  // The dollar figure is what Claude Code reports, which on a subscription
+  // is the API price of the work rather than a bill; the label says so.
+  // Each part is kept whole, so a narrow sidebar breaks between them rather
+  // than leaving "-478" alone on a line.
+  const parts = [
+    t.sessions + (t.sessions === 1 ? " session" : " sessions"),
+    t.api ? t.api + " model time" : "",
+    t.lines || "",
+  ].filter(Boolean);
+  $("todayNote").replaceChildren(...parts.flatMap((p, i) => i ? [" · ", el("span", null, p)] : [el("span", null, p)]));
 
   const hours = t.hours || [];
   const peak = Math.max(0, ...hours);
@@ -487,9 +494,12 @@ function renderToday(t) {
   });
   const busiest = hours.indexOf(peak);
   spark.setAttribute("role", "img");
+  // The bars' titles are hover-only, so the label carries every hour that
+  // had spend. Empty hours are left out; a list of twenty "$0.00"s is noise.
+  const spent = hours.flatMap((usd, h) => usd > 0 ? [String(h).padStart(2, "0") + ":00 $" + usd.toFixed(2)] : []);
   spark.setAttribute("aria-label", peak > 0
-    ? "Spend by hour; busiest " + String(busiest).padStart(2, "0") + ":00 at $" + peak.toFixed(2)
-    : "Spend by hour");
+    ? "Spend by hour, busiest " + String(busiest).padStart(2, "0") + ":00: " + spent.join(", ")
+    : "Spend by hour: none yet");
 
   shares("todayRepos", t.repos);
   shares("todayModels", t.models);

@@ -76,6 +76,11 @@ func repoOf(p Payload) string {
 	return ""
 }
 
+func midnight(t time.Time) time.Time {
+	y, m, d := t.Date()
+	return time.Date(y, m, d, 0, 0, 0, 0, t.Location())
+}
+
 // appendLedger records the change from prev to next, if there is one. It is
 // called on every statusline render, so the common case - nothing moved - must
 // cost nothing beyond the comparison.
@@ -83,11 +88,18 @@ func appendLedger(dir string, prev *Payload, next Payload, now time.Time) error 
 	if next.Cost == nil {
 		return nil
 	}
-	var from Totals
-	if prev != nil {
-		from = totalsOf(prev.Cost)
-	}
 	to := totalsOf(next.Cost)
+	var from Totals
+	switch {
+	case prev != nil:
+		from = totalsOf(prev.Cost)
+	case next.Cost.DurationMS > 0 && now.Add(-time.Duration(next.Cost.DurationMS)*time.Millisecond).Before(midnight(now)):
+		// Never seen before, but running since before today: the shim
+		// was just installed, or the session's file was swept. What it
+		// spent today is unknowable, so this reading becomes the
+		// starting point and only what comes after it counts.
+		from = to
+	}
 	if from == to {
 		return nil
 	}
@@ -107,7 +119,9 @@ func appendLedger(dir string, prev *Payload, next Payload, now time.Time) error 
 	}
 	// O_APPEND makes one short write atomic against other shims appending
 	// at the same moment, so lines never interleave.
-	f, err := os.OpenFile(ledgerFile(dir, now), os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o644)
+	// Private, like the session files beside it: a day of repository
+	// names and costs is nobody else's business.
+	f, err := os.OpenFile(ledgerFile(dir, now), os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o600)
 	if err != nil {
 		return err
 	}
@@ -140,9 +154,17 @@ func Spends(entries []LedgerEntry) []Spend {
 	seen := map[string]Totals{}
 	out := make([]Spend, 0, len(sorted))
 	for _, e := range sorted {
+		last, ok := seen[e.Session]
+		reset := e.To.USD < e.From.USD
 		var base Totals
-		switch last, ok := seen[e.Session]; {
-		case e.To.USD < e.From.USD:
+		switch {
+		case reset && ok && e.From.USD > last.USD:
+			// A second copy of a reset already counted: it starts from
+			// the total before the reset, which the session has not
+			// been at since. Only what it adds to the new counters is
+			// new.
+			base = last
+		case reset:
 			// The counters started over, eg. a resumed session: all
 			// of what it reports is new.
 		case ok:

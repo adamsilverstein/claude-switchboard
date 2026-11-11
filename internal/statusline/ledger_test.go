@@ -193,3 +193,64 @@ func TestLedgerPrunesOldDays(t *testing.T) {
 		t.Errorf("%s was removed", filepath.Base(recent))
 	}
 }
+
+// Two renders racing across a reset both record the same drop; the second
+// must not count the new counters again, and later spend still counts.
+func TestSpendsCountsARacedResetOnce(t *testing.T) {
+	got := Spends([]LedgerEntry{
+		entry(1, "a", 0, 5),
+		entry(2, "a", 5, 0.25),
+		entry(2, "a", 5, 0.25),
+		entry(3, "a", 0.25, 1),
+		entry(4, "a", 1, 0.5),
+	})
+	if !near(sum(got), 6.5) {
+		t.Errorf("sum = %v; want 6.5", sum(got))
+	}
+}
+
+// A session first seen today that has been running since before midnight
+// has an unknown share of its total in today; only what follows counts.
+func TestFirstSightingOfAnOldSessionCountsNothing(t *testing.T) {
+	dir := t.TempDir()
+	at := time.Date(2026, 11, 11, 9, 0, 0, 0, time.Local)
+	old := fmt.Sprintf(`{"session_id":"s1","cost":{"total_cost_usd":%v,"total_duration_ms":%d}}`, 40.0, (12 * time.Hour).Milliseconds())
+	if err := store(dir, []byte(old), at); err != nil {
+		t.Fatal(err)
+	}
+	later := fmt.Sprintf(`{"session_id":"s1","cost":{"total_cost_usd":%v,"total_duration_ms":%d}}`, 41.5, (13 * time.Hour).Milliseconds())
+	if err := store(dir, []byte(later), at.Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if got := sum(Spends(NewLedger(dir).Day(at))); !near(got, 1.5) {
+		t.Errorf("today = %v; want 1.5", got)
+	}
+}
+
+// A session that started today counts from zero on its first render.
+func TestFirstSightingOfANewSessionCountsEverything(t *testing.T) {
+	dir := t.TempDir()
+	at := time.Date(2026, 11, 11, 9, 0, 0, 0, time.Local)
+	raw := `{"session_id":"s1","cost":{"total_cost_usd":0.75,"total_duration_ms":60000}}`
+	if err := store(dir, []byte(raw), at); err != nil {
+		t.Fatal(err)
+	}
+	if got := sum(Spends(NewLedger(dir).Day(at))); !near(got, 0.75) {
+		t.Errorf("today = %v; want 0.75", got)
+	}
+}
+
+func TestLedgerFilesArePrivate(t *testing.T) {
+	dir := t.TempDir()
+	at := time.Now()
+	if err := store(dir, costPayload("s1", 1, 1, "m", "r"), at); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(ledgerFile(dir, at))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if perm := info.Mode().Perm(); perm != 0o600 {
+		t.Errorf("ledger mode %o; want 600", perm)
+	}
+}
