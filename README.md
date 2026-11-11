@@ -154,6 +154,7 @@ switchboard list --all      # include dead entries and sessions no window shows
 switchboard where <agent>   # which window is the agent in?
 switchboard focus <agent>   # jump to it
 switchboard focus <agent> --dry-run   # print the commands instead
+switchboard reply <agent> <text>      # answer an idle agent without switching
 switchboard statusline --install      # turn on usage, context and cost
 ```
 
@@ -166,7 +167,7 @@ switchboard  sort: status
 ●  idle     55m     Clean up worktrees                       245 worktrees. The top-level dir mtimes look unreliable, so…
 ●  busy     4h24m   Notes iteration for WordPress 7.2 #800…  Done. Created #81940 - Notes: show an unseen-notes count b…
 ○  dead     6h09m   Image block hides Resolution #81902      Done - PR #81938 is merged and the issue is closed.
-enter focus  / filter  s/a/n/d sort  ctrl+x stop  q quit
+enter focus  space peek  / filter  s/a/n/d sort  ctrl+x stop  q quit
 ```
 
 `<agent>` matches on name, PID, or session id; a unique substring is enough.
@@ -256,7 +257,7 @@ widen it again and the shape you gave the table comes back.
 Keys: arrows or `j`/`k` move, `enter` focuses, `/` filters across name,
 directory, repository, model, pull request and summary, `s`/`a`/`c`/`n`/`r`/`d` sort by
 status, age, context, name, repo or directory, `e` expands the Ended group,
-`ctrl+x` (then `y`) stops an agent with SIGTERM, `cmd-1` hides the sidebar,
+`space` peeks, `ctrl+x` (then `y`) stops an agent with SIGTERM, `cmd-1` hides the sidebar,
 `q` or `cmd-q` quits, and `?` opens a sheet listing all of them. Clicking a row selects it, double-clicking focuses it,
 and the sidebar's queue, repository and model lists are filters.
 
@@ -282,11 +283,39 @@ editing the SVG, regenerate the `.icns` with `scripts/make-icon.sh` (it needs
 
 In the terminal picker: arrows or `j`/`k` move, `/` filters incrementally
 across name, directory, and summary, `s`/`a`/`n`/`d` sort by status, age,
-name, or directory, `enter` focuses the selection, `ctrl+x` (then `y`) stops
+name, or directory, `enter` focuses the selection, `space` peeks, `ctrl+x` (then `y`) stops
 an agent with SIGTERM, `q` quits. The working directory has no column of its own - it
 repeats across most rows, and the summary is what tells agents apart - but it
 is still filtered and sorted on. Dead agents stay listed greyed out so you
 can see what just finished; they sort last under every key.
+
+### Peek and reply
+
+The summary column is one line: enough to see that an agent is waiting, not
+enough to answer it. `space` on a row, in either the picker or the app
+window, opens a panel with the last thing you asked that agent and
+everything it has said since, read from the tail of its transcript. The app
+window renders the reply's markdown; the picker shows it as wrapped text.
+The panel rereads the transcript while it is open, so the answer to a reply
+appears in place. `esc` closes it.
+
+A one-line input under the exchange types a reply into the agent's own
+terminal and presses return, without moving focus. Replies are deliberately
+narrow:
+
+- Only to a live, idle Claude Code agent. A busy agent would read the text
+  as an interruption; Codex and background sessions are not supported yet.
+- Only to an iTerm2 session or a tmux pane. Just before typing, the agent's
+  process is re-checked against its registry entry (the same stale-PID guard
+  stop uses), and the session's tty is checked against the process's own, so
+  a window that closed or changed hands is refused rather than typed into.
+- One line of plain text, at most 2000 characters. Control characters are
+  refused: in a terminal they are keystrokes, not text.
+
+Permission prompts are not answerable from the panel yet.
+
+`switchboard reply <agent> <text>` does the same from a script, with the
+same checks.
 
 ### Session telemetry and usage (optional)
 
@@ -402,7 +431,8 @@ Terminal.app backend later means one new file there.
 
 ## Non-goals
 
-- Not a transcript browser; past sessions have good tools already.
+- Not a transcript browser; past sessions have good tools already. Peek
+  shows a live agent's last exchange and nothing further back.
 - Not a launcher; it never spawns a session, only finds running ones.
 - No tmux dependency; tmux is one focus target among others.
 - Nothing cross-machine; local sockets and local windows only.

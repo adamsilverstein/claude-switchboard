@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"sync"
 	"syscall"
 	"time"
 
@@ -43,6 +44,63 @@ func stopAgent(a registry.Agent) error {
 	}
 	return syscall.Kill(a.PID, syscall.SIGTERM)
 }
+
+// peekAgent reads an agent's last exchange for the peek panel.
+func peekAgent(projectsDir string, a registry.Agent) (activity.Exchange, error) {
+	if a.Codex() {
+		return activity.Exchange{}, fmt.Errorf("peek reads Claude Code transcripts only")
+	}
+	ex, ok := activity.LastExchange(projectsDir, a.Cwd, a.SessionID)
+	if !ok {
+		return activity.Exchange{}, fmt.Errorf("no transcript found for this session")
+	}
+	return ex, nil
+}
+
+// replyAgent types text into an agent's terminal and presses return.
+//
+// It takes the same care stopAgent does, and more, because typing into the
+// wrong terminal is worse than signaling the wrong process:
+//
+//   - The registry file is read again, so the idle-only rule is judged on
+//     the status right now rather than the one the poll saw.
+//   - The process is re-checked against its registry start time, and both
+//     start times must be known. Listing tolerates a missing one; typing
+//     does not.
+//   - The tty comes from that fresh process check, and the terminal session
+//     found for it is checked against it again at the moment of typing.
+//
+// Replies are serialized machine-wide, so two sent in quick succession are
+// typed one after the other rather than interleaved ahead of a single
+// return.
+func replyAgent(a registry.Agent, text string) error {
+	text, err := target.CleanReply(text)
+	if err != nil {
+		return err
+	}
+	replyMu.Lock()
+	defer replyMu.Unlock()
+
+	fresh, ok := registry.Reread(a)
+	if !ok {
+		return fmt.Errorf("agent is gone; not sending")
+	}
+	if why := ui.ReplyBlocked(fresh); why != "" {
+		return fmt.Errorf("%s", why)
+	}
+	procs, err := locate.Snapshot([]int{fresh.PID})
+	if err != nil {
+		return err
+	}
+	p, ok := procs[fresh.PID]
+	if !ok || fresh.ProcStart.IsZero() || p.Start.IsZero() || !registry.SameProcess(fresh, p.Start) {
+		return fmt.Errorf("cannot confirm the agent is still the same process; not sending")
+	}
+	r := target.ExecRunner{}
+	return target.SendReply(r, target.NewResolver(r).ResolveReply(fresh.Tmux, p.TTY), text)
+}
+
+var replyMu sync.Mutex
 
 // appSource builds the enriched rows the app window shows. It holds the git
 // and forge caches across polls, which is the whole reason it is a value and

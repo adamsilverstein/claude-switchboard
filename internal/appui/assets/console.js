@@ -73,6 +73,13 @@ const state = {
   noticeTimer: null,
   columns: {},      // column name -> pixel width you dragged it to
   dragging: null,   // the column being dragged, or null
+  peek: null,       // {pid, sessionId} of the agent being peeked at, or null
+  peekTimer: null,
+  // Replies still being typed, by agent key: {id, text}. Kept apart from
+  // the panel so closing and reopening it cannot start a second reply to
+  // the same agent, or let the first one's answer clear a newer draft.
+  replies: new Map(),
+  replySeq: 0,
   menu: null,       // {opener, onClose} while a menu is open
 };
 
@@ -758,6 +765,7 @@ function renderReadout(a) {
     $("last").hidden = true;
     $("focusBtn").disabled = true;
     $("stopBtn").disabled = true;
+    $("peekBtn").disabled = true;
     readout.remove("strip");
     return;
   }
@@ -766,6 +774,7 @@ function renderReadout(a) {
   $("readlabel").replaceChildren("Selection · ", el("span", "readname", a.name));
   $("focusBtn").disabled = !a.focusable;
   $("stopBtn").disabled = !a.live;
+  $("peekBtn").disabled = false;
 
   // The four-cell readout costs about 130px of height. Once the list is
   // already overflowing, that height is worth more to the list.
@@ -1046,6 +1055,189 @@ function setFilter(q) {
   send({ cmd: "filter", q: q });
 }
 
+/* ------------------------------------------------------------------ peek */
+
+// How often an open panel asks for the exchange again, so the answer to a
+// reply appears without closing and reopening it.
+const PEEK_REFRESH_MS = 1500;
+
+function peekedAgent() {
+  if (!state.peek || !state.snap) return null;
+  return state.snap.agents.find((a) => key(a) === key(state.peek)) || null;
+}
+
+function openPeek() {
+  const a = selected();
+  if (!a) return;
+  state.peek = { pid: a.pid, sessionId: a.sessionId };
+  $("peektitle").textContent = a.name;
+  // Forget what the last panel drew, or an unchanged exchange for the same
+  // agent would match it and never replace the loading line.
+  delete $("peekbody").dataset.sig;
+  delete $("peekbody").dataset.opened;
+  $("peekbody").replaceChildren(line("soft", "reading transcript…"));
+  $("peekinput").value = "";
+  $("peek").hidden = false;
+  renderPeekState();
+  requestPeek();
+  clearInterval(state.peekTimer);
+  state.peekTimer = setInterval(requestPeek, PEEK_REFRESH_MS);
+  if (!$("peekinput").disabled) $("peekinput").focus();
+  else $("peekbody").focus();
+}
+
+function closePeek() {
+  state.peek = null;
+  clearInterval(state.peekTimer);
+  $("peek").hidden = true;
+  $("list").focus();
+}
+
+// trapTab keeps Tab and shift-Tab cycling through the panel's own controls
+// while it is open. It is a modal dialog: focus that walks out of it lands
+// on a list whose keys the panel has taken over.
+function trapTab(e) {
+  const stops = [...$("peek").querySelectorAll("button, input, [tabindex]")]
+    .filter((n) => !n.disabled && n.offsetParent !== null);
+  if (!stops.length) return;
+  const first = stops[0];
+  const last = stops[stops.length - 1];
+  const at = stops.indexOf(document.activeElement);
+  if (e.shiftKey && (at <= 0)) { e.preventDefault(); last.focus(); }
+  else if (!e.shiftKey && (at === -1 || at === stops.length - 1)) { e.preventDefault(); first.focus(); }
+}
+
+function requestPeek() {
+  if (state.peek) send({ cmd: "peek", pid: state.peek.pid, sessionId: state.peek.sessionId });
+}
+
+// renderPeekState follows the agent through each frame: its status in the
+// header, and whether a reply may go to it. The rule is Go's, so a status
+// the page has never heard of still gets the right answer.
+function renderPeekState() {
+  if (!state.peek) return;
+  const a = peekedAgent();
+  const why = !a ? "agent is gone" : a.replyBlocked || "";
+  const sending = state.replies.has(key(state.peek));
+  $("peekmeta").textContent = a ? [BAND_LABEL[a.status] || a.status, a.age].filter(Boolean).join(" · ") : "ended";
+  $("peekinput").disabled = !!why || sending;
+  $("peeksend").disabled = !!why || sending;
+  $("peekwhy").hidden = !why;
+  $("peekwhy").textContent = why;
+}
+
+function renderPeek(v) {
+  const body = $("peekbody");
+  // Rerendering every refresh would throw away a scroll position and a
+  // selection; only an exchange that changed is worth redrawing.
+  const sig = JSON.stringify([v.asked, v.reply, v.error]);
+  if (body.dataset.sig === sig) return;
+  body.dataset.sig = sig;
+  const atEnd = body.scrollHeight - body.scrollTop - body.clientHeight < 24;
+
+  if (v.error) {
+    body.replaceChildren(line("soft", v.error));
+    return;
+  }
+  const turns = [];
+  turns.push(turn("you", v.asked ? markdown(v.asked)
+    : [line("soft", "your last prompt is further back than the tail reaches")]));
+  const said = v.reply ? markdown(v.reply) : [line("soft", "no reply yet")];
+  if (v.truncated) said.unshift(line("soft", "… earlier text cut"));
+  turns.push(turn("agent", said));
+  body.replaceChildren(...turns);
+  // The question is at the end of a reply, so that is where the panel
+  // opens - and where it stays, unless you have scrolled up to read.
+  if (atEnd || !body.dataset.opened) body.scrollTop = body.scrollHeight;
+  body.dataset.opened = "1";
+}
+
+function turn(who, nodes) {
+  const t = el("div", "turn " + who);
+  const said = el("div", "said");
+  said.append(...nodes);
+  t.append(el("span", "who", who), said);
+  return t;
+}
+
+// markdown renders the handful of shapes a reply is made of - fenced code,
+// headings, paragraphs and lists, inline code and bold - as DOM nodes. It
+// builds with textContent like everything else here: the text is the
+// agent's, and nothing in it is ever parsed as HTML.
+function markdown(text) {
+  const out = [];
+  let prose = [];
+  let fence = null; // {mark, lines} while inside a code block
+  const flushProse = () => {
+    for (const block of prose.join("\n").split(/\n{2,}/)) {
+      const trimmed = block.replace(/^\n+|\n+$/g, "");
+      if (!trimmed) continue;
+      const p = el("p");
+      const h = /^#{1,6}\s+(.*)$/.exec(trimmed);
+      if (h && !trimmed.includes("\n")) {
+        p.className = "heading";
+        p.append(...inline(h[1]));
+      } else {
+        p.append(...inline(trimmed));
+      }
+      out.push(p);
+    }
+    prose = [];
+  };
+  const flushFence = () => {
+    const pre = el("pre");
+    pre.append(el("code", "", fence.lines.join("\n")));
+    out.push(pre);
+    fence = null;
+  };
+  for (const ln of text.split("\n")) {
+    if (fence) {
+      // A fence closes only on its own character, at least as long as
+      // it opened, with nothing after it - so a four-backtick block can
+      // quote a three-backtick one.
+      const close = /^ {0,3}(`{3,}|~{3,})\s*$/.exec(ln);
+      if (close && close[1][0] === fence.mark[0] && close[1].length >= fence.mark.length) flushFence();
+      else fence.lines.push(ln);
+      continue;
+    }
+    const open = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(ln);
+    if (open && !(open[1][0] === "`" && open[2].includes("`"))) {
+      flushProse();
+      fence = { mark: open[1], lines: [] };
+      continue;
+    }
+    prose.push(ln);
+  }
+  if (fence) flushFence(); // an unclosed fence runs to the end
+  flushProse();
+  return out;
+}
+
+function inline(text) {
+  const nodes = [];
+  const re = /`([^`\n]+)`|\*\*([^*\n]+)\*\*/g;
+  let last = 0;
+  let m;
+  while ((m = re.exec(text))) {
+    if (m.index > last) nodes.push(document.createTextNode(text.slice(last, m.index)));
+    nodes.push(m[1] !== undefined ? el("code", "", m[1]) : el("strong", "", m[2]));
+    last = re.lastIndex;
+  }
+  if (last < text.length) nodes.push(document.createTextNode(text.slice(last)));
+  return nodes;
+}
+
+function sendReply() {
+  const a = peekedAgent();
+  const text = $("peekinput").value.trim();
+  if (!a || !text || a.replyBlocked || state.replies.has(key(a))) return;
+  const id = ++state.replySeq;
+  state.replies.set(key(a), { id, text });
+  renderPeekState();
+  notice("sending to " + a.name + "…");
+  send({ cmd: "reply", pid: a.pid, sessionId: a.sessionId, text: text, id: id });
+}
+
 // The copy happens on the Go side. The window loads this page with no
 // origin of its own, and WebKit gives such a page no clipboard: the call
 // throws before it can even fail. Only the agent is named, so the path that
@@ -1213,6 +1405,7 @@ function openRowMenu(at) {
   const refWord = a.refKind === "issue" ? "issue" : "pull request";
   openMenu([
     { label: "Focus window", hint: "⏎", run: focusAgent, disabled: !a.focusable },
+    { label: "Peek and reply", hint: "␣", run: openPeek },
     { label: a.ref ? "Open " + refWord + " " + a.ref : "Open pull request", run: openRef, disabled: !a.refUrl },
     { label: "Copy working directory", run: copyCwd, disabled: !a.cwd },
     { label: "Filter to " + (a.repo || "this repository"), run: () => setFilter(a.repo), disabled: !a.repo },
@@ -1331,6 +1524,14 @@ window.addEventListener("keydown", (e) => {
     return;
   }
 
+  // While the panel is open the keys belong to it: typing a reply must not
+  // sort the list or quit the window. Escape is the one way out.
+  if (state.peek) {
+    if (e.key === "Escape") { e.preventDefault(); closePeek(); }
+    else if (e.key === "Tab") trapTab(e);
+    return;
+  }
+
   if (state.confirmingStop) {
     const a = state.confirmingStop;
     state.confirmingStop = null;
@@ -1354,6 +1555,7 @@ window.addEventListener("keydown", (e) => {
     case "ArrowUp": case "k": e.preventDefault(); moveCursor(-1); return;
     case "ArrowDown": case "j": e.preventDefault(); moveCursor(1); return;
     case "Enter": e.preventDefault(); focusAgent(); return;
+    case " ": e.preventDefault(); openPeek(); return;
     case "/": e.preventDefault(); $("filterInput").focus(); return;
     case "Escape": e.preventDefault(); state.queue = null; setFilter(""); return;
     case "g": e.preventDefault(); moveCursor(-1e6); return;
@@ -1380,6 +1582,9 @@ $("filterInput").addEventListener("blur", () => { state.typing = false; });
 $("filterInput").addEventListener("input", (e) => send({ cmd: "filter", q: e.target.value }));
 $("focusBtn").onclick = focusAgent;
 $("stopBtn").onclick = stopAgent;
+$("peekBtn").onclick = openPeek;
+$("peekclose").onclick = closePeek;
+$("peekform").addEventListener("submit", (e) => { e.preventDefault(); sendReply(); });
 $("copycwd").onclick = copyCwd;
 $("viewBtn").onclick = () => {
   if (state.menu && state.menu.opener === $("viewBtn")) { closeMenu(); return; }
@@ -1426,6 +1631,30 @@ window.__snapshot = (json) => {
   // one - Stop included - so it closes rather than quietly retargeting.
   if (state.menu && state.menu.targetKey && (!cur || key(cur) !== state.menu.targetKey)) closeMenu();
   render();
+  renderPeekState();
+};
+window.__peek = (json) => {
+  const v = JSON.parse(json);
+  if (state.peek && key(v) === key(state.peek)) renderPeek(v);
+};
+// A reply that went clears the input; one that failed keeps it, so the
+// text can be sent again once whatever stopped it is fixed. The id ties the
+// answer to the send that asked, whatever the panel has done since.
+window.__replied = (id, ok) => {
+  let agentKey = null;
+  let sent = null;
+  for (const [k, r] of state.replies) {
+    if (r.id === id) { agentKey = k; sent = r; }
+  }
+  if (!sent) return;
+  state.replies.delete(agentKey);
+  if (!state.peek || key(state.peek) !== agentKey) return;
+  const input = $("peekinput");
+  if (ok && input.value.trim() === sent.text) input.value = "";
+  if (!ok && !input.value) input.value = sent.text;
+  if (ok) requestPeek();
+  renderPeekState();
+  if (!input.disabled) input.focus();
 };
 window.__notice = (text, alert) => notice(text, alert);
 

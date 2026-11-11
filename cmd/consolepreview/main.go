@@ -20,6 +20,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/adamsilverstein/claude-switchboard/internal/appui"
@@ -62,6 +63,8 @@ func main() {
 			Col    string        `json:"col"`
 			PID    int           `json:"pid"`
 			Sess   string        `json:"sessionId"`
+			Text   string        `json:"text"`
+			ID     int           `json:"id"`
 		}
 		_ = json.NewDecoder(r.Body).Decode(&m)
 		switch m.Cmd {
@@ -90,8 +93,27 @@ func main() {
 				}
 			}
 		}
+		res := struct {
+			Snapshot appui.Snapshot  `json:"snapshot"`
+			Peek     *appui.PeekView `json:"peek,omitempty"`
+			Replied  *bool           `json:"replied,omitempty"`
+			ID       int             `json:"id,omitempty"`
+		}{Snapshot: c.Snapshot(time.Now())}
+		switch m.Cmd {
+		case "peek":
+			repliesMu.Lock()
+			v := appui.PeekView{PID: m.PID, SessionID: m.Sess, Asked: sampleAsked, Reply: sampleReply + replies[m.Sess]}
+			repliesMu.Unlock()
+			res.Peek = &v
+		case "reply":
+			repliesMu.Lock()
+			replies[m.Sess] += "\n\n(you replied: " + m.Text + ")"
+			repliesMu.Unlock()
+			ok := true
+			res.Replied, res.ID = &ok, m.ID
+		}
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(c.Snapshot(time.Now()))
+		_ = json.NewEncoder(w).Encode(res)
 	})
 
 	log.Printf("console preview on http://%s (%d agents)", *addr, *n)
@@ -107,12 +129,34 @@ func main() {
 const bridge = `<script>
 async function cmd(json) {
   const res = await fetch("/cmd", { method: "POST", body: json });
-  window.__snapshot(JSON.stringify(await res.json()));
+  const body = await res.json();
+  window.__snapshot(JSON.stringify(body.snapshot));
   const note = res.headers.get("X-Notice");
   if (note) window.__notice(note, res.headers.get("X-Notice-Alert") === "1");
+  if (body.peek) window.__peek(JSON.stringify(body.peek));
+  if (body.replied !== undefined) {
+    window.__notice("sent", false);
+    window.__replied(body.id, body.replied);
+  }
 }
 </script>
 `
+
+// The peek panel's sample exchange: a question with a list and some code in
+// it, which is what the panel is mostly for.
+const sampleAsked = "Can you rerun the failing e2e spec and report back?"
+
+const sampleReply = "Rerunning `upload.spec.ts` now.\n\n" +
+	"## Result\n\nThe spec fails on the **second** upload. Two options:\n" +
+	"1. await the upload promise before asserting\n2. bump the timeout, which only hides the race\n\n" +
+	"```ts\nawait page.waitForResponse( /media/ );\n```\n\nWhich would you like?"
+
+// replies is what the preview pretends each agent has been sent. HTTP
+// handlers run concurrently, so it has a lock of its own.
+var (
+	repliesMu sync.Mutex
+	replies   = map[string]string{}
+)
 
 // The fixture is deliberately awkward. A tidy one hid a real bug once: every
 // fabricated name happened to fit its column, so a name that did not clip

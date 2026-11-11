@@ -158,11 +158,33 @@
       <div id="last" hidden></div>
       <div id="actions">
         <button type="button" id="focusBtn" class="btn primary">Focus window <span class="key" aria-hidden="true">&#9166;</span></button>
+        <button type="button" id="peekBtn" class="btn">Peek <span class="key" aria-hidden="true">&#9251;</span></button>
         <button type="button" id="copycwd" class="btn">Copy cwd</button>
         <button type="button" id="stopBtn" class="btn danger">Stop <span class="key" aria-hidden="true">&#8963;X</span></button>
         <button type="button" id="keysBtn" class="btn" aria-haspopup="dialog"><span class="label-text">Keyboard shortcuts</span> <kbd>?</kbd></button>
       </div>
       <div id="notice" role="status" aria-live="polite"></div>
+    </div>
+
+    <!-- The peek panel: the last thing you asked an agent and everything
+         it has said since, with a one-line reply under it. It covers the
+         list rather than the readout so the notice line stays visible, and
+         it is a dialog because while it is open the keys are the input's,
+         not the list's. -->
+    <div id="peek" role="dialog" aria-modal="true" aria-labelledby="peektitle" hidden>
+      <div id="peekhead">
+        <b id="peektitle"></b>
+        <span id="peekmeta"></span>
+        <button type="button" id="peekclose" aria-label="Close peek">esc</button>
+      </div>
+      <div id="peekbody" tabindex="0" aria-live="polite"></div>
+      <form id="peekform" autocomplete="off">
+        <b aria-hidden="true">&gt;</b>
+        <input id="peekinput" type="text" maxlength="2000" spellcheck="true"
+               aria-label="Reply to the agent" placeholder="reply to the agent">
+        <button type="submit" id="peeksend">Send &#9166;</button>
+      </form>
+      <div id="peekwhy" hidden></div>
     </div>
   </main>
 </div>
@@ -193,6 +215,7 @@
         <span class="label">Act</span>
         <dl>
           <dt><kbd>&#9166;</kbd></dt><dd>Focus the agent's window</dd>
+          <dt><kbd>space</kbd></dt><dd>Peek at the last exchange and reply</dd>
           <dt><kbd>&#8963;X</kbd></dt><dd>Stop the agent, then <kbd>y</kbd> to confirm</dd>
           <dt><kbd>&#8679;F10</kbd></dt><dd>Actions for the selected agent, or columns on a header</dd>
         </dl>
