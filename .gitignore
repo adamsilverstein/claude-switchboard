@@ -8,3 +8,6 @@ go.work.sum
 
 # Editor
 .DS_Store
+
+# Release staging for Switchboard.app
+/build/
