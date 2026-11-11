@@ -148,14 +148,27 @@ func (c *Cache) resolve(cwd string) Info {
 		}
 	}
 
-	// --untracked-files=no on purpose. Untracked files are usually build
-	// output and scratch files, and enumerating them is the expensive part
-	// of `git status` on a large repository. The flag means "you have work
-	// that is not committed", which is what the branch marker is for.
-	out, err := c.run.Run("git", "-C", cwd, "status", "--porcelain", "--untracked-files=no")
+	dirty, err := Dirty(c.run, cwd)
 	if err != nil {
 		return info
 	}
-	info.Dirty = strings.TrimSpace(out) != ""
+	info.Dirty = dirty
 	return info
+}
+
+// Dirty asks git directly whether cwd has uncommitted changes, bypassing the
+// cache. It is for decisions rather than display: a ten second old "clean"
+// is fine for a marker on a row and not fine for deciding to stop the agent
+// that might be halfway through the next change.
+//
+// --untracked-files=no on purpose. Untracked files are usually build output
+// and scratch files, and enumerating them is the expensive part of `git
+// status` on a large repository. The flag means "you have work that is not
+// committed", which is what the branch marker is for.
+func Dirty(r Runner, cwd string) (bool, error) {
+	out, err := r.Run("git", "-C", cwd, "status", "--porcelain", "--untracked-files=no")
+	if err != nil {
+		return false, err
+	}
+	return strings.TrimSpace(out) != "", nil
 }
