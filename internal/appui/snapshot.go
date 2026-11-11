@@ -89,6 +89,10 @@ type Account struct {
 	Codex5hResetsIn string `json:"codex5hResetsIn,omitempty"`
 	Codex7dPct      *int   `json:"codex7dPct"`
 	Codex7dResetsIn string `json:"codex7dResetsIn,omitempty"`
+
+	// Today is the day's spend from the shim's ledger. Nil when nothing
+	// has been recorded today, and the page drops the panel.
+	Today *Today `json:"today"`
 }
 
 // AgentView is one row, formatted. Numbers arrive as strings that are ready
