@@ -140,6 +140,10 @@ func SendReply(r Runner, t ReplyTarget, text string) error {
 // pause as a bare carriage return: Enter in a terminal is CR, and the pause
 // keeps it out of the burst Claude Code would read as a paste.
 //
+// The scan indexes rather than iterating with "repeat with c in": a loop
+// variable there is a reference, and "contents of" it - the usual way to
+// dereference one - reads an iTerm session's screen text instead.
+//
 // Failures raise an AppleScript error, which osascript reports on stderr and
 // ExecRunner turns into the error message.
 const sendTextScript = `on run argv
@@ -157,11 +161,14 @@ const sendTextScript = `on run argv
 			if (id of c) is targetId then set s to c
 		end try
 		if s is missing value then
-			repeat with w in windows
-				repeat with t in tabs of w
-					repeat with c in sessions of t
-						if (id of c) is targetId then
-							set s to contents of c
+			set wins to windows
+			repeat with wj from 1 to (count of wins)
+				set tabsOfW to tabs of (item wj of wins)
+				repeat with tj from 1 to (count of tabsOfW)
+					set sessOfT to sessions of (item tj of tabsOfW)
+					repeat with sj from 1 to (count of sessOfT)
+						if (id of item sj of sessOfT) is targetId then
+							set s to item sj of sessOfT
 							exit repeat
 						end if
 					end repeat
