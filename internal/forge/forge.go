@@ -238,7 +238,10 @@ func (c *Cache) resolve(dir, branch string) (ref Ref, ghMissing bool) {
 	if err != nil {
 		return Ref{Known: true}, errors.Is(err, exec.ErrNotFound)
 	}
-	if pr, ok := currentBranchPR(out); ok {
+	if pr, full, ok := currentBranchPR(out); ok {
+		if full {
+			pr.Checks = c.allChecks(dir, pr.Number, pr.Checks)
+		}
 		return pr, false
 	}
 	// No pull request. A branch named for the issue it closes is the only
@@ -303,6 +306,10 @@ func tally(rollup []ghCheck) Checks {
 			c.Pass++
 		case "FAILURE", "TIMED_OUT", "CANCELLED", "ACTION_REQUIRED", "STARTUP_FAILURE":
 			c.Fail++
+		case "STALE":
+			// GitHub gave up waiting on it. gh counts that as pending,
+			// and so does this: it has not passed.
+			c.Pending++
 		}
 	}
 	return c
@@ -322,32 +329,67 @@ func reviewWord(d string) string {
 	return ""
 }
 
+// rollupPage is how many checks `gh pr status` returns. It asks GitHub for
+// the first hundred and does not page past them, so a rollup this long may
+// be missing the very check that failed.
+const rollupPage = 100
+
+// allChecks recounts a pull request's checks with `gh pr checks`, which does
+// page, for the rare one whose rollup filled the first page. Gutenberg has
+// around 140. If the call fails, the partial count is better than none.
+//
+// gh exits non-zero when any check is failing or pending, and still prints
+// the list, so the output is read whatever the exit status.
+func (c *Cache) allChecks(dir string, number int, partial Checks) Checks {
+	out, _ := c.run.RunIn(dir, "gh", "pr", "checks", strconv.Itoa(number), "--json", "bucket")
+	var rows []struct {
+		Bucket string `json:"bucket"`
+	}
+	if json.Unmarshal([]byte(out), &rows) != nil || len(rows) == 0 {
+		return partial
+	}
+	var all Checks
+	for _, r := range rows {
+		switch r.Bucket {
+		case "pass":
+			all.Pass++
+		case "fail", "cancel":
+			all.Fail++
+		case "pending":
+			all.Pending++
+		}
+	}
+	return all
+}
+
 // currentBranchPR reads the one field of `gh pr status` that matters. A null
-// there is an answer, not a gap: this branch has no pull request.
-func currentBranchPR(out string) (Ref, bool) {
+// there is an answer, not a gap: this branch has no pull request. full
+// reports that the check rollup filled gh's one page and may be cut short.
+func currentBranchPR(out string) (ref Ref, full, ok bool) {
 	var status struct {
 		CurrentBranch *ghPR `json:"currentBranch"`
 	}
 	if json.Unmarshal([]byte(out), &status) != nil || status.CurrentBranch == nil {
-		return Ref{}, false
+		return Ref{}, false, false
 	}
 	p := *status.CurrentBranch
 	if p.Number == 0 {
-		return Ref{}, false
+		return Ref{}, false, false
 	}
 	state := strings.ToLower(p.State)
 	if p.IsDraft && state == "open" {
 		state = "draft"
 	}
-	ref := Ref{Number: p.Number, Kind: "pr", State: state, Title: p.Title, URL: p.URL, Known: true}
+	ref = Ref{Number: p.Number, Kind: "pr", State: state, Title: p.Title, URL: p.URL, Known: true}
 	if state == "open" || state == "draft" {
 		ref.Checks = tally(p.Rollup)
 		ref.Review = reviewWord(p.ReviewDecision)
 		// UNKNOWN is GitHub still working it out, which it does lazily
 		// and often: only a definite conflict is worth a mark.
 		ref.Conflicts = p.Mergeable == "CONFLICTING"
+		full = len(p.Rollup) >= rollupPage
 	}
-	return ref, true
+	return ref, full, true
 }
 
 func issue(out string) Ref {

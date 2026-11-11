@@ -18,6 +18,10 @@ type fakeGH struct {
 	prs   string
 	issue string
 	err   error
+
+	// checks is what `gh pr checks` prints. It is printed alongside an
+	// exit error, as gh does whenever a check is failing or pending.
+	checks string
 }
 
 func (f *fakeGH) RunIn(dir, name string, args ...string) (string, error) {
@@ -29,6 +33,9 @@ func (f *fakeGH) RunIn(dir, name string, args ...string) (string, error) {
 	}
 	if len(args) > 1 && args[0] == "issue" {
 		return f.issue, nil
+	}
+	if len(args) > 1 && args[0] == "pr" && args[1] == "checks" {
+		return f.checks, errors.New("exit status 8")
 	}
 	return f.prs, nil
 }
@@ -163,6 +170,91 @@ func TestUnknownMergeabilityIsNotAConflict(t *testing.T) {
 	got := c.Ref("/repo", "b")
 	if got.Conflicts || got.Review != "" || got.Checks.State() != "" {
 		t.Errorf("Ref = %+v, want nothing to mark", got)
+	}
+}
+
+// A stale check is one GitHub stopped waiting on. It has not passed, and
+// must not let the rest of a green rollup call the row green.
+func TestStaleCheckIsNotAPass(t *testing.T) {
+	gh := &fakeGH{prs: status(`{"number":13,"title":"t","state":"OPEN","url":"u","isDraft":false,
+		"statusCheckRollup":[
+			{"__typename":"CheckRun","status":"COMPLETED","conclusion":"SUCCESS"},
+			{"__typename":"CheckRun","status":"COMPLETED","conclusion":"STALE"}
+		]}`)}
+	c := NewCache(gh)
+	c.Ref("/repo", "b")
+	c.Wait()
+
+	if got := c.Ref("/repo", "b").Checks; got.State() != "pending" {
+		t.Errorf("Checks = %+v (%q), want pending", got, got.State())
+	}
+}
+
+// rollup builds a gh pr status answer whose rollup holds n passing checks.
+func rollup(n int) string {
+	checks := make([]string, n)
+	for i := range checks {
+		checks[i] = `{"__typename":"CheckRun","status":"COMPLETED","conclusion":"SUCCESS"}`
+	}
+	return status(`{"number":81940,"title":"t","state":"OPEN","url":"u","isDraft":false,
+		"statusCheckRollup":[` + strings.Join(checks, ",") + `]}`)
+}
+
+// gh pr status returns the first hundred checks and stops. A gutenberg pull
+// request has around 140, so a full page is recounted with gh pr checks,
+// which pages - otherwise a failure in the last forty reads as green.
+func TestAFullRollupIsRecounted(t *testing.T) {
+	gh := &fakeGH{
+		prs:    rollup(rollupPage),
+		checks: `[` + strings.Repeat(`{"bucket":"pass"},`, 130) + `{"bucket":"skipping"},{"bucket":"fail"},{"bucket":"cancel"},{"bucket":"pending"}]`,
+	}
+	now := time.Unix(1_800_000_000, 0)
+	c := NewCache(gh)
+	c.now = func() time.Time { return now }
+	c.Ref("/repo", "b")
+	c.Wait()
+
+	got := c.Ref("/repo", "b").Checks
+	if want := (Checks{Pass: 130, Fail: 2, Pending: 1}); got != want {
+		t.Errorf("Checks = %+v, want %+v", got, want)
+	}
+	if n := gh.count("pr checks 81940 --json bucket"); n != 1 {
+		t.Errorf("recounted %d times, want 1", n)
+	}
+
+	// The pending check past the first page earns the short TTL.
+	now = now.Add(PendingTTL)
+	c.Ref("/repo", "b")
+	c.Wait()
+	if n := gh.count("pr status"); n != 2 {
+		t.Errorf("looked up %d times after PendingTTL, want 2", n)
+	}
+}
+
+// A rollup short of a full page is complete, and costs no second call.
+func TestAShortRollupIsNotRecounted(t *testing.T) {
+	gh := &fakeGH{prs: rollup(rollupPage - 1)}
+	c := NewCache(gh)
+	c.Ref("/repo", "b")
+	c.Wait()
+
+	if n := gh.count("pr checks"); n != 0 {
+		t.Errorf("recounted %d times for a rollup under one page, want 0", n)
+	}
+	if got := c.Ref("/repo", "b").Checks; got.Pass != rollupPage-1 {
+		t.Errorf("Checks = %+v, want %d passing", got, rollupPage-1)
+	}
+}
+
+// If the recount fails, the first page is still better than nothing.
+func TestAFailedRecountKeepsTheFirstPage(t *testing.T) {
+	gh := &fakeGH{prs: rollup(rollupPage), checks: ""}
+	c := NewCache(gh)
+	c.Ref("/repo", "b")
+	c.Wait()
+
+	if got := c.Ref("/repo", "b").Checks; got.Pass != rollupPage {
+		t.Errorf("Checks = %+v, want the %d from the first page", got, rollupPage)
 	}
 }
 
