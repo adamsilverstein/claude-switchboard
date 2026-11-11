@@ -59,8 +59,7 @@ const state = {
   collapsed: new Set([ENDED]),
   capacity: 0,
   typing: false,
-  confirmingStop: null,
-  confirmingSweep: null, // the done agents a pending sweep would stop
+  confirming: null, // {stop: agent} or {sweep: agents}: the one prompt awaiting y/N
   showDoneSubagents: false, // one choice for every session, not per row
   noticeTimer: null,
   columns: {},      // column name -> pixel width you dragged it to
@@ -97,12 +96,24 @@ function send(obj) {
   try { cmd(JSON.stringify(obj)); } catch (e) { /* the window is closing */ }
 }
 
+// notice replaces whatever the notice line said, and with it any prompt that
+// was waiting on y/N: an answer should only ever go to the question on screen.
 function notice(text, alert) {
+  state.confirming = null;
   const n = $("notice");
   n.textContent = text || "";
   n.classList.toggle("alert", !!alert);
   clearTimeout(state.noticeTimer);
-  if (text) state.noticeTimer = setTimeout(() => { if (n.textContent === text) n.textContent = ""; }, 6000);
+  if (text) {
+    state.noticeTimer = setTimeout(() => {
+      if (n.textContent === text) { n.textContent = ""; state.confirming = null; }
+    }, 6000);
+  }
+}
+
+function ask(text, pending) {
+  notice(text, true);
+  state.confirming = pending;
 }
 
 /* ------------------------------------------------------------ selection */
@@ -936,8 +947,7 @@ function stopAgent() {
   const a = selected();
   if (!a) return;
   if (!a.live) { notice("agent is already gone", true); return; }
-  state.confirmingStop = a;
-  notice("stop “" + a.name + "” (SIGTERM pid " + a.pid + ")? y/N", true);
+  ask("stop “" + a.name + "” (SIGTERM pid " + a.pid + ")? y/N", { stop: a });
 }
 
 // sweepDone asks once before stopping every agent in the Done band. An agent
@@ -953,16 +963,13 @@ function sweepDone() {
   const dirty = done.filter((a) => a.dirty);
   const skip = dirty.length ? " - skipping " + names(dirty) + " (uncommitted changes)" : "";
   if (!clean.length) { notice("nothing to sweep" + skip, true); return; }
-  state.confirmingSweep = clean;
-  notice("sweep " + clean.length + " done (" + names(clean) + "): stop each and close its session?" + skip + " y/N", true);
+  ask("sweep " + clean.length + " done (" + names(clean) + "): stop each and close its session?" + skip + " y/N", { sweep: clean });
 }
 
-// names lists agents for a one-line notice, cutting off before the line
-// wraps rather than after.
+// names lists every agent a prompt is about. A bulk stop should say exactly
+// what it will stop, even if the line has to wrap.
 function names(list) {
-  const shown = list.slice(0, 3).map((a) => "“" + a.name + "”");
-  if (list.length > 3) shown.push((list.length - 3) + " more");
-  return shown.join(", ");
+  return list.map((a) => "“" + a.name + "”").join(", ");
 }
 
 function toggleEnded() {
@@ -995,20 +1002,14 @@ window.addEventListener("keydown", (e) => {
     return;
   }
 
-  if (state.confirmingStop) {
-    const a = state.confirmingStop;
-    state.confirmingStop = null;
+  if (state.confirming) {
+    const { stop: a, sweep: list } = state.confirming;
+    state.confirming = null;
     e.preventDefault();
-    if (e.key === "y") send({ cmd: "stop", pid: a.pid, sessionId: a.sessionId });
-    else notice("stop cancelled");
-    return;
-  }
-
-  if (state.confirmingSweep) {
-    const list = state.confirmingSweep;
-    state.confirmingSweep = null;
-    e.preventDefault();
-    if (e.key === "y") {
+    if (a) {
+      if (e.key === "y") { notice(""); send({ cmd: "stop", pid: a.pid, sessionId: a.sessionId }); }
+      else notice("stop cancelled");
+    } else if (e.key === "y") {
       notice("sweeping " + list.length + "…");
       send({ cmd: "sweep", agents: list.map((a) => ({ pid: a.pid, sessionId: a.sessionId })) });
     } else notice("sweep cancelled");
