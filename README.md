@@ -202,7 +202,7 @@ An open or draft pull request also carries one glyph for the most urgent
 thing about it: ✗ failing checks, ● changes requested, ⚠ merge conflicts,
 ◌ checks still running, ✓ green, or ◐ a review still to come. The readout
 below the list, and the glyph's tooltip, spell out all of them - "2
-failing · review requested" - so an idle agent on a red pull request no
+failing · review required" - so an idle agent on a red pull request no
 longer looks the same as one on a green one.
 
 Asking costs a `gh` call per repository, so the answers are cached for two

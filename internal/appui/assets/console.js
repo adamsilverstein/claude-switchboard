@@ -653,7 +653,7 @@ function refMarks(a) {
   if (a.refChecks === "pending") out.push({ tone: "wait", glyph: "◌", text: a.refChecksLabel });
   if (a.refChecks === "pass") out.push({ tone: "pass", glyph: "✓", text: a.refChecksLabel });
   if (a.refReview === "approved") out.push({ tone: "ok", glyph: "✓", text: "approved" });
-  if (a.refReview === "required") out.push({ tone: "quiet", glyph: "◐", text: "review requested" });
+  if (a.refReview === "required") out.push({ tone: "quiet", glyph: "◐", text: "review required" });
   return out;
 }
 
@@ -757,7 +757,8 @@ function stripLine(a) {
     a.contextPct === null || a.contextPct === undefined ? "" : "ctx " + a.contextPct + "%",
     a.usage ? a.usage.cost : "",
     subagentsLabel(a),
-    a.elapsed, repoLabel(a), a.ref ? a.ref + " " + a.refTitle : "", a.tty,
+    a.elapsed, repoLabel(a), a.ref ? a.ref + " " + a.refTitle : "",
+    ...refMarks(a).map((k) => k.text), a.tty,
     a.permissionMode ? a.permissionMode + " mode" : "",
   ].filter(Boolean).join(" · ");
 }
