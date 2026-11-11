@@ -284,6 +284,15 @@ With the shim in place the app window gains a context percentage per
 session, a usage cell showing what that session has cost and how its prompt
 cache is holding, and a sidebar panel for the account's rate-limit windows.
 
+It also gains a **Today** panel: the day's total cost, how many sessions ran,
+an hourly sparkline, model time and lines changed, and the day broken down by
+repository and by model. Ended sessions still count. Each time a session's
+totals move, the shim appends one line to
+`~/.claude/switchboard/statusline/ledger/<date>.jsonl`, which is what lets a
+session that runs past midnight be split by day. The dollar figures are what
+Claude Code reports, which on a subscription is the API price of the work
+rather than a bill. Codex sessions report no cost and are not counted.
+
 **Three windows, and no more.** Claude Code reports the five-hour window,
 the seven-day window across all models, and - on gateway accounts - the
 spend limit. The per-model weekly window that `/usage` draws ("Current week
@@ -297,7 +306,7 @@ than shown blank, and the sidebar says how to turn them on. The shim never
 fails: an unreadable payload is dropped and your statusline still renders,
 because losing telemetry for one session is a much smaller problem than
 replacing your prompt with an error message. Files for sessions untouched
-for a month are swept up automatically.
+for a month, and ledger days older than a month, are swept up automatically.
 
 ## How it works
 
