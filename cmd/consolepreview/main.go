@@ -43,6 +43,14 @@ func main() {
 		fmt.Fprint(w, strings.Replace(appui.Page(), "</body>", bridge+"</body>", 1))
 	})
 	http.HandleFunc("/cmd", func(w http.ResponseWriter, r *http.Request) {
+		// Only the page this server served may send commands. Any site
+		// open in the same browser can POST to localhost, and copy
+		// writes to the real clipboard.
+		if o := r.Header.Get("Origin"); r.Method != http.MethodPost || (o != "" && o != "http://"+r.Host) ||
+			r.Header.Get("Sec-Fetch-Site") == "cross-site" {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
 		var m struct {
 			Cmd    string        `json:"cmd"`
 			Key    string        `json:"key"`
