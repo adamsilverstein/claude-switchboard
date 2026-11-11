@@ -317,6 +317,7 @@ type Action struct {
 	SessionID string
 	URL       string
 	Text      string
+	ID        int // the page's number for a reply, echoed back when it is done
 }
 
 // Handle applies one command from the page.
@@ -343,6 +344,7 @@ func (c *Controller) Handle(raw string) Action {
 		SessionID string  `json:"sessionId"`
 		URL       string  `json:"url"`
 		Text      string  `json:"text"`
+		ID        int     `json:"id"`
 	}
 	if err := json.Unmarshal([]byte(raw), &m); err != nil {
 		return Action{}
@@ -374,7 +376,7 @@ func (c *Controller) Handle(raw string) Action {
 		if strings.TrimSpace(m.Text) == "" {
 			return Action{}
 		}
-		return Action{Kind: "reply", PID: m.PID, SessionID: m.SessionID, Text: m.Text}
+		return Action{Kind: "reply", PID: m.PID, SessionID: m.SessionID, Text: m.Text, ID: m.ID}
 	case "open":
 		// Only a URL this build produced can be opened. Every one of
 		// them came back from `gh` as a github.com link, so anything

@@ -18,6 +18,7 @@ import (
 	"log"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/adamsilverstein/claude-switchboard/internal/appui"
@@ -51,6 +52,7 @@ func main() {
 			PID    int           `json:"pid"`
 			SID    string        `json:"sessionId"`
 			Text   string        `json:"text"`
+			ID     int           `json:"id"`
 		}
 		_ = json.NewDecoder(r.Body).Decode(&m)
 		switch m.Cmd {
@@ -71,15 +73,20 @@ func main() {
 			Snapshot appui.Snapshot  `json:"snapshot"`
 			Peek     *appui.PeekView `json:"peek,omitempty"`
 			Replied  *bool           `json:"replied,omitempty"`
+			ID       int             `json:"id,omitempty"`
 		}{Snapshot: c.Snapshot(time.Now())}
 		switch m.Cmd {
 		case "peek":
+			repliesMu.Lock()
 			v := appui.PeekView{PID: m.PID, SessionID: m.SID, Asked: sampleAsked, Reply: sampleReply + replies[m.SID]}
+			repliesMu.Unlock()
 			res.Peek = &v
 		case "reply":
+			repliesMu.Lock()
 			replies[m.SID] += "\n\n(you replied: " + m.Text + ")"
+			repliesMu.Unlock()
 			ok := true
-			res.Replied = &ok
+			res.Replied, res.ID = &ok, m.ID
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(res)
@@ -101,9 +108,8 @@ async function cmd(json) {
   window.__snapshot(JSON.stringify(res.snapshot));
   if (res.peek) window.__peek(JSON.stringify(res.peek));
   if (res.replied !== undefined) {
-    const m = JSON.parse(json);
     window.__notice("sent", false);
-    window.__replied(m.pid, m.sessionId, res.replied);
+    window.__replied(res.id, res.replied);
   }
 }
 </script>
@@ -118,8 +124,12 @@ const sampleReply = "Rerunning `upload.spec.ts` now.\n\n" +
 	"1. await the upload promise before asserting\n2. bump the timeout, which only hides the race\n\n" +
 	"```ts\nawait page.waitForResponse( /media/ );\n```\n\nWhich would you like?"
 
-// replies is what the preview pretends each agent has been sent.
-var replies = map[string]string{}
+// replies is what the preview pretends each agent has been sent. HTTP
+// handlers run concurrently, so it has a lock of its own.
+var (
+	repliesMu sync.Mutex
+	replies   = map[string]string{}
+)
 
 // The fixture is deliberately awkward. A tidy one hid a real bug once: every
 // fabricated name happened to fit its column, so a name that did not clip

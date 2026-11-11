@@ -65,7 +65,11 @@ const state = {
   dragging: null,   // the column being dragged, or null
   peek: null,       // {pid, sessionId} of the agent being peeked at, or null
   peekTimer: null,
-  peekSending: false,
+  // Replies still being typed, by agent key: {id, text}. Kept apart from
+  // the panel so closing and reopening it cannot start a second reply to
+  // the same agent, or let the first one's answer clear a newer draft.
+  replies: new Map(),
+  replySeq: 0,
 };
 
 /* ------------------------------------------------------------ utilities */
@@ -962,8 +966,11 @@ function openPeek() {
   const a = selected();
   if (!a) return;
   state.peek = { pid: a.pid, sessionId: a.sessionId };
-  state.peekSending = false;
   $("peektitle").textContent = a.name;
+  // Forget what the last panel drew, or an unchanged exchange for the same
+  // agent would match it and never replace the loading line.
+  delete $("peekbody").dataset.sig;
+  delete $("peekbody").dataset.opened;
   $("peekbody").replaceChildren(line("soft", "reading transcript…"));
   $("peekinput").value = "";
   $("peek").hidden = false;
@@ -982,6 +989,20 @@ function closePeek() {
   $("list").focus();
 }
 
+// trapTab keeps Tab and shift-Tab cycling through the panel's own controls
+// while it is open. It is a modal dialog: focus that walks out of it lands
+// on a list whose keys the panel has taken over.
+function trapTab(e) {
+  const stops = [...$("peek").querySelectorAll("button, input, [tabindex]")]
+    .filter((n) => !n.disabled && n.offsetParent !== null);
+  if (!stops.length) return;
+  const first = stops[0];
+  const last = stops[stops.length - 1];
+  const at = stops.indexOf(document.activeElement);
+  if (e.shiftKey && (at <= 0)) { e.preventDefault(); last.focus(); }
+  else if (!e.shiftKey && (at === -1 || at === stops.length - 1)) { e.preventDefault(); first.focus(); }
+}
+
 function requestPeek() {
   if (state.peek) send({ cmd: "peek", pid: state.peek.pid, sessionId: state.peek.sessionId });
 }
@@ -993,9 +1014,10 @@ function renderPeekState() {
   if (!state.peek) return;
   const a = peekedAgent();
   const why = !a ? "agent is gone" : a.replyBlocked || "";
+  const sending = state.replies.has(key(state.peek));
   $("peekmeta").textContent = a ? [BAND_LABEL[a.status] || a.status, a.age].filter(Boolean).join(" · ") : "ended";
-  $("peekinput").disabled = !!why || state.peekSending;
-  $("peeksend").disabled = !!why || state.peekSending;
+  $("peekinput").disabled = !!why || sending;
+  $("peeksend").disabled = !!why || sending;
   $("peekwhy").hidden = !why;
   $("peekwhy").textContent = why;
 }
@@ -1040,15 +1062,10 @@ function turn(who, nodes) {
 // agent's, and nothing in it is ever parsed as HTML.
 function markdown(text) {
   const out = [];
-  const parts = text.split(/^```[^\n]*$/m);
-  parts.forEach((part, i) => {
-    if (i % 2 === 1) {
-      const pre = el("pre");
-      pre.append(el("code", "", part.replace(/^\n|\n$/g, "")));
-      out.push(pre);
-      return;
-    }
-    for (const block of part.split(/\n{2,}/)) {
+  let prose = [];
+  let fence = null; // {mark, lines} while inside a code block
+  const flushProse = () => {
+    for (const block of prose.join("\n").split(/\n{2,}/)) {
       const trimmed = block.replace(/^\n+|\n+$/g, "");
       if (!trimmed) continue;
       const p = el("p");
@@ -1061,7 +1078,34 @@ function markdown(text) {
       }
       out.push(p);
     }
-  });
+    prose = [];
+  };
+  const flushFence = () => {
+    const pre = el("pre");
+    pre.append(el("code", "", fence.lines.join("\n")));
+    out.push(pre);
+    fence = null;
+  };
+  for (const ln of text.split("\n")) {
+    if (fence) {
+      // A fence closes only on its own character, at least as long as
+      // it opened, with nothing after it - so a four-backtick block can
+      // quote a three-backtick one.
+      const close = /^ {0,3}(`{3,}|~{3,})\s*$/.exec(ln);
+      if (close && close[1][0] === fence.mark[0] && close[1].length >= fence.mark.length) flushFence();
+      else fence.lines.push(ln);
+      continue;
+    }
+    const open = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(ln);
+    if (open && !(open[1][0] === "`" && open[2].includes("`"))) {
+      flushProse();
+      fence = { mark: open[1], lines: [] };
+      continue;
+    }
+    prose.push(ln);
+  }
+  if (fence) flushFence(); // an unclosed fence runs to the end
+  flushProse();
   return out;
 }
 
@@ -1082,11 +1126,12 @@ function inline(text) {
 function sendReply() {
   const a = peekedAgent();
   const text = $("peekinput").value.trim();
-  if (!a || !text || a.replyBlocked || state.peekSending) return;
-  state.peekSending = true;
+  if (!a || !text || a.replyBlocked || state.replies.has(key(a))) return;
+  const id = ++state.replySeq;
+  state.replies.set(key(a), { id, text });
   renderPeekState();
   notice("sending to " + a.name + "…");
-  send({ cmd: "reply", pid: a.pid, sessionId: a.sessionId, text: text });
+  send({ cmd: "reply", pid: a.pid, sessionId: a.sessionId, text: text, id: id });
 }
 
 /* -------------------------------------------------------------- keyboard */
@@ -1112,6 +1157,7 @@ window.addEventListener("keydown", (e) => {
   // sort the list or quit the window. Escape is the one way out.
   if (state.peek) {
     if (e.key === "Escape") { e.preventDefault(); closePeek(); }
+    else if (e.key === "Tab") trapTab(e);
     return;
   }
 
@@ -1199,16 +1245,23 @@ window.__peek = (json) => {
   if (state.peek && key(v) === key(state.peek)) renderPeek(v);
 };
 // A reply that went clears the input; one that failed keeps it, so the
-// text can be sent again once whatever stopped it is fixed.
-window.__replied = (pid, sessionId, ok) => {
-  if (!state.peek || key({ pid, sessionId }) !== key(state.peek)) return;
-  state.peekSending = false;
-  if (ok) {
-    $("peekinput").value = "";
-    requestPeek();
+// text can be sent again once whatever stopped it is fixed. The id ties the
+// answer to the send that asked, whatever the panel has done since.
+window.__replied = (id, ok) => {
+  let agentKey = null;
+  let sent = null;
+  for (const [k, r] of state.replies) {
+    if (r.id === id) { agentKey = k; sent = r; }
   }
+  if (!sent) return;
+  state.replies.delete(agentKey);
+  if (!state.peek || key(state.peek) !== agentKey) return;
+  const input = $("peekinput");
+  if (ok && input.value.trim() === sent.text) input.value = "";
+  if (!ok && !input.value) input.value = sent.text;
+  if (ok) requestPeek();
   renderPeekState();
-  if (!$("peekinput").disabled) $("peekinput").focus();
+  if (!input.disabled) input.focus();
 };
 window.__notice = (text, alert) => notice(text, alert);
 

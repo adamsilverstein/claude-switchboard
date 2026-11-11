@@ -104,7 +104,7 @@ func runApp(args []string) error {
 	// input on success and keep the text to retry on failure.
 	replied := func(act appui.Action, ok bool) {
 		dispatch(func() {
-			w.Eval(fmt.Sprintf("window.__replied && window.__replied(%d, %q, %t)", act.PID, act.SessionID, ok))
+			w.Eval(fmt.Sprintf("window.__replied && window.__replied(%d, %t)", act.ID, ok))
 		})
 	}
 
