@@ -88,14 +88,27 @@ EOF
 
 # Ad-hoc signing is enough for a bundle to launch on Apple Silicon. A
 # Developer ID signature also needs the hardened runtime and a secure
-# timestamp before Apple will notarize it.
+# timestamp before Apple will notarize it. The hardened runtime blocks Apple
+# Events unless the signature carries the automation entitlement, and
+# focusing an iTerm window is an Apple Event.
 if [ "$SIGN_IDENTITY" = "-" ]; then
 	codesign --force --deep --sign - "$APP" 2>/dev/null || true
 else
-	codesign --force --options runtime --timestamp \
-		--sign "$SIGN_IDENTITY" "$BIN"
-	codesign --force --options runtime --timestamp \
-		--sign "$SIGN_IDENTITY" "$APP"
+	ENTITLEMENTS="$BUILD/entitlements.plist"
+	cat > "$ENTITLEMENTS" <<'EOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>com.apple.security.automation.apple-events</key>
+	<true/>
+</dict>
+</plist>
+EOF
+	for target in "$BIN" "$APP"; do
+		codesign --force --options runtime --timestamp \
+			--entitlements "$ENTITLEMENTS" --sign "$SIGN_IDENTITY" "$target"
+	done
 fi
 
 echo "built $APP"
