@@ -19,11 +19,21 @@ const STATUS_ORDER = ["waiting", "idle", "busy", "shell"];
 const ENDED = "dead";
 const BAND_LABEL = { waiting: "Needs you", busy: "Working", idle: "Idle", shell: "Shell", dead: "Ended" };
 const QUEUE = ["waiting", "idle", "busy", "dead"];
+// The sorts in the order the View menu lists them, with the key for each.
 const SORT_KEYS = [
-  ["status", "Status"], ["age", "Age"], ["context", "Context"],
-  ["name", "Name"], ["repo", "Repo"], ["dir", "Dir"],
+  ["status", "Status", "s"], ["age", "Age", "a"], ["context", "Context", "c"],
+  ["name", "Name", "n"], ["repo", "Repository", "r"], ["dir", "Directory", "d"],
 ];
-const ABBREV = { waiting: "wait", busy: "busy", idle: "idle", shell: "shell", dead: "dead" };
+const STATUS_WORD = { waiting: "Waiting", busy: "Busy", idle: "Idle", shell: "Shell", dead: "Dead" };
+const ABBREV = { waiting: "Wait", busy: "Busy", idle: "Idle", shell: "Shell", dead: "Dead" };
+
+// The columns that can be taken out of the table, as the View menu and the
+// header's context menu name them. STATUS and NAME are not here: see Hidden
+// in controller.go, which a test holds to this list.
+const HIDEABLE = [
+  ["age", "Age"], ["context", "Context"], ["repo", "Repo"],
+  ["ref", "PR / Issue"], ["summary", "Summary"],
+];
 
 // Thresholds the design fixes: a context bar goes red once compaction is
 // close, and a usage meter once more than half the window is spent.
@@ -63,6 +73,7 @@ const state = {
   noticeTimer: null,
   columns: {},      // column name -> pixel width you dragged it to
   dragging: null,   // the column being dragged, or null
+  menu: null,       // {opener, onClose} while a menu is open
 };
 
 /* ------------------------------------------------------------ utilities */
@@ -358,6 +369,10 @@ function render() {
   const s = state.snap;
   if (!s) return;
   document.body.classList.toggle("compact", s.compact);
+  // Grouped, the band and the dot carry status, and the word steps out.
+  document.body.classList.toggle("grouped", s.grouped);
+  const hidden = s.hidden || {};
+  for (const [col] of HIDEABLE) document.body.classList.toggle("hide-" + col, !!hidden[col]);
   // A column no agent on this machine can fill leaves the table. Without
   // the statusline shim that is the whole context column, and without gh -
   // or without a branch that has a pull request - it is the ref column too.
@@ -538,29 +553,14 @@ function meter(id, pct, note) {
   b.replaceChildren(...bar(pct, pct >= USAGE_ALERT).childNodes);
   b.classList.toggle("over", pct >= USAGE_ALERT);
   $(id + "Note").textContent = note;
+  // When it resets is the detail, shown on hover; the note itself is read
+  // out with the meter.
+  const label = box.querySelector(".label");
+  box.title = [label.dataset.full || label.textContent, pct + "%", note].filter(Boolean).join(" · ");
   return true;
 }
 
 function renderToolbar(s) {
-  const keys = $("sortKeys");
-  if (!keys.childElementCount) {
-    for (const [k, label] of SORT_KEYS) {
-      const b = el("button", null, label);
-      b.type = "button";
-      b.dataset.sort = k;
-      b.onclick = () => send({ cmd: "sort", key: k });
-      keys.append(b);
-    }
-  }
-  for (const b of keys.children) b.setAttribute("aria-pressed", String(b.dataset.sort === s.sort));
-  for (const b of $("viewKeys").children) {
-    b.setAttribute("aria-pressed", String((b.dataset.group === "1") === s.grouped));
-    b.onclick = () => send({ cmd: "group", on: b.dataset.group === "1" });
-  }
-  for (const b of document.querySelectorAll("[data-density]")) {
-    b.setAttribute("aria-pressed", String((b.dataset.density === "compact") === s.compact));
-    b.onclick = () => send({ cmd: "density", value: b.dataset.density });
-  }
   for (const b of $("head").querySelectorAll("[data-sort]")) {
     if (b.dataset.sort === s.sort) b.setAttribute("aria-sort", "ascending");
     else b.removeAttribute("aria-sort");
@@ -582,13 +582,14 @@ function renderList(s) {
   const cur = key(selected());
   if (!s.grouped) {
     for (const a of rows) list.append(rowEl(a, cur, s));
-    return;
+  } else {
+    for (const [status, group] of bands(rows)) {
+      list.append(bandEl(status, group.length));
+      if (state.collapsed.has(status)) continue;
+      for (const a of group) list.append(rowEl(a, cur, s));
+    }
   }
-  for (const [status, group] of bands(rows)) {
-    list.append(bandEl(status, group.length));
-    if (state.collapsed.has(status)) continue;
-    for (const a of group) list.append(rowEl(a, cur, s));
-  }
+  markMenuTarget();
 }
 
 // bands splits the rows into the blocks the list draws, in the order Go put
@@ -613,7 +614,7 @@ const BAND_COLOUR = {
 };
 
 function bandEl(status, n) {
-  const b = el("div", "band");
+  const b = el("div", status === ENDED ? "band toggle" : "band");
   const label = el("span", null, (BAND_LABEL[status] || "Unknown") + " · " + n);
   label.style.color = BAND_COLOUR[status] || "var(--muted)";
   b.append(label);
@@ -631,10 +632,11 @@ function rowEl(a, cur, s) {
   r.setAttribute("role", "row");
   r.dataset.status = a.status || "";
   r.dataset.live = String(a.live);
+  r.dataset.key = key(a);
   r.setAttribute("aria-selected", String(key(a) === cur));
 
   r.append(line("dot", a.live ? "●" : "○"));
-  r.append(line("status", s.compact ? (ABBREV[a.status] || "?") : (a.status || "?")));
+  r.append(line("status", (s.compact ? ABBREV : STATUS_WORD)[a.status] || a.status || "?"));
   r.append(line("age", a.age));
 
   const nameCell = el("span", "name-cell");
@@ -656,6 +658,12 @@ function rowEl(a, cur, s) {
 
   r.onclick = () => { state.cursor = { pid: a.pid, sessionId: a.sessionId }; render(); };
   r.ondblclick = focusAgent;
+  r.oncontextmenu = (e) => {
+    e.preventDefault();
+    state.cursor = { pid: a.pid, sessionId: a.sessionId };
+    render();
+    openRowMenu({ x: e.clientX, y: e.clientY });
+  };
   return r;
 }
 
@@ -753,7 +761,9 @@ function renderReadout(a) {
     readout.remove("strip");
     return;
   }
-  $("readlabel").textContent = "Selection · " + a.name;
+  // The name is the agent's own words, so it keeps its own case; only the
+  // section label is set in capitals.
+  $("readlabel").replaceChildren("Selection · ", el("span", "readname", a.name));
   $("focusBtn").disabled = !a.focusable;
   $("stopBtn").disabled = !a.live;
 
@@ -1036,6 +1046,265 @@ function setFilter(q) {
   send({ cmd: "filter", q: q });
 }
 
+// The copy happens on the Go side. The window loads this page with no
+// origin of its own, and WebKit gives such a page no clipboard: the call
+// throws before it can even fail. Only the agent is named, so the path that
+// lands on the clipboard is the one Go has on record, not one from the page.
+function copyCwd() {
+  const a = selected();
+  if (!a) return;
+  send({ cmd: "copy", pid: a.pid, sessionId: a.sessionId });
+}
+
+function openRef() {
+  const a = selected();
+  if (a && a.refUrl) send({ cmd: "open", url: a.refUrl });
+}
+
+function toggleSidebar() {
+  $("app").classList.toggle("no-sidebar");
+  $("sidebar").classList.toggle("hidden");
+}
+
+function sidebarShown() {
+  return !$("sidebar").classList.contains("hidden") && $("sidebar").offsetWidth > 0;
+}
+
+function openKeys() {
+  closeMenu();
+  if (!$("keys").open) $("keys").showModal();
+}
+
+/* ----------------------------------------------------------------- menus */
+
+/* One menu element serves three menus: View, a row's actions, and the
+ * header's columns. Each is a list of items built fresh when it opens, so
+ * what it shows is always the frame that is on screen now.
+ *
+ * An item is {label, hint, run, disabled, checked, radio, danger}, or
+ * {heading} for a group label, or {sep: true} for a rule. checked makes it a
+ * menuitemcheckbox, radio a menuitemradio; the tick is drawn from
+ * aria-checked so the state a screen reader hears is the one on screen.
+ *
+ * Every control that left the toolbar or the legend is reachable here, from
+ * a header, or from a key - the menus add ways in and take none away.
+ */
+
+function openMenu(items, at) {
+  closeMenu();
+  const m = $("menu");
+  m.replaceChildren();
+  for (const it of items) {
+    if (it.sep) { m.append(el("hr")); continue; }
+    if (it.heading) { m.append(el("span", "label heading", it.heading)); continue; }
+    const b = el("button", it.danger ? "danger" : null);
+    b.type = "button";
+    b.tabIndex = -1;
+    if (it.checked !== undefined) {
+      b.setAttribute("role", it.radio ? "menuitemradio" : "menuitemcheckbox");
+      b.setAttribute("aria-checked", String(!!it.checked));
+    } else {
+      b.setAttribute("role", "menuitem");
+    }
+    b.append(el("span", null, it.label));
+    if (it.hint) {
+      const h = el("span", "hint", it.hint);
+      h.setAttribute("aria-hidden", "true");
+      b.append(h);
+    }
+    if (it.title) b.title = it.title;
+    b.disabled = !!it.disabled;
+    b.onclick = () => { closeMenu(); it.run(); };
+    m.append(b);
+  }
+  if (at.label) m.setAttribute("aria-label", at.label);
+  else m.removeAttribute("aria-label");
+  m.hidden = false;
+
+  // Kept inside the window: a menu opened near the right or bottom edge
+  // opens back towards the middle, the way a native one does.
+  const w = m.offsetWidth;
+  const h = m.offsetHeight;
+  let x = at.alignRight ? at.x - w : at.x;
+  let y = at.y;
+  if (x + w > innerWidth - 8) x = innerWidth - 8 - w;
+  if (y + h > innerHeight - 8) y = Math.max(8, (at.alignRight ? innerHeight - 8 - h : at.y - h));
+  m.style.left = Math.max(8, x) + "px";
+  m.style.top = Math.max(8, y) + "px";
+
+  // Where focus goes back to when the menu is dismissed: its button, or
+  // whatever had focus when a context menu opened over it.
+  const back = at.opener || (document.activeElement !== document.body ? document.activeElement : null);
+  state.menu = { opener: at.opener || null, back, targetKey: at.targetKey || "" };
+  if (at.opener) at.opener.setAttribute("aria-expanded", "true");
+  markMenuTarget();
+  const first = menuItems()[0];
+  if (first) first.focus();
+}
+
+function closeMenu() {
+  if (!state.menu) return;
+  const { opener } = state.menu;
+  state.menu = null;
+  $("menu").hidden = true;
+  if (opener) opener.setAttribute("aria-expanded", "false");
+  markMenuTarget();
+}
+
+// The row a menu was opened on keeps an outline while it is up. Marked after
+// every render, since a poll landing under an open menu redraws the rows.
+function markMenuTarget() {
+  const k = state.menu ? state.menu.targetKey : "";
+  for (const r of $("list").querySelectorAll(".row")) r.classList.toggle("menu-target", !!k && r.dataset.key === k);
+}
+
+function menuItems() {
+  return [...$("menu").querySelectorAll("button:not(:disabled)")];
+}
+
+// While a menu is open it has the keyboard: arrows move, Enter or Space
+// chooses, Escape and Tab close it.
+function menuKey(e) {
+  const items = menuItems();
+  const i = items.indexOf(document.activeElement);
+  const go = (n) => { e.preventDefault(); if (items.length) items[(n + items.length) % items.length].focus(); };
+  switch (e.key) {
+    case "ArrowDown": go(i + 1); return;
+    case "ArrowUp": go(i < 0 ? -1 : i - 1); return;
+    case "Home": go(0); return;
+    case "End": go(-1); return;
+    case "Enter": case " ":
+      e.preventDefault();
+      if (i >= 0) items[i].click();
+      return;
+    case "Escape": case "Tab": {
+      // Focus goes back where it came from either way. Escape stops
+      // there; Tab carries on from it to the next control, as it would
+      // have if the menu had never opened.
+      if (e.key === "Escape") e.preventDefault();
+      const back = state.menu.back;
+      closeMenu();
+      if (back && back.isConnected) back.focus();
+      return;
+    }
+  }
+  // A letter jumps to the next item that starts with it.
+  if (e.key.length === 1 && !e.metaKey && !e.ctrlKey) {
+    e.preventDefault();
+    const k = e.key.toLowerCase();
+    const order = items.slice(i + 1).concat(items.slice(0, i + 1));
+    const hit = order.find((b) => b.textContent.trim().toLowerCase().startsWith(k));
+    if (hit) hit.focus();
+  }
+}
+
+// The selected row's actions: what the buttons under the readout do, plus
+// opening its pull request, where the pointer already is. With no pointer -
+// shift-F10 or the menu key - it opens on the row itself.
+function openRowMenu(at) {
+  const a = selected();
+  if (!a) return;
+  const row = $("list").querySelector('[aria-selected="true"]');
+  if (!at) {
+    if (!row) return;
+    const r = row.getBoundingClientRect();
+    at = { x: r.left + 40, y: r.bottom };
+  }
+  const refWord = a.refKind === "issue" ? "issue" : "pull request";
+  openMenu([
+    { label: "Focus window", hint: "⏎", run: focusAgent, disabled: !a.focusable },
+    { label: a.ref ? "Open " + refWord + " " + a.ref : "Open pull request", run: openRef, disabled: !a.refUrl },
+    { label: "Copy working directory", run: copyCwd, disabled: !a.cwd },
+    { label: "Filter to " + (a.repo || "this repository"), run: () => setFilter(a.repo), disabled: !a.repo },
+    { sep: true },
+    { label: "Stop…", hint: "⌃X", run: stopAgent, disabled: !a.live, danger: true },
+  ], { x: at.x, y: at.y, targetKey: key(a), label: "Actions for " + a.name });
+}
+
+// The menu key and shift-F10 open the menu for whatever has focus: the
+// columns menu on a header, the selected row's actions anywhere else.
+function openContextMenuFromKeyboard() {
+  const inHead = document.activeElement && $("head").contains(document.activeElement);
+  if (!inHead) { openRowMenu(null); return; }
+  const r = document.activeElement.getBoundingClientRect();
+  openMenu(columnMenuItems(), { x: r.left, y: r.bottom + 4 });
+}
+
+// A column the window has no room for, or that nothing here can fill, is
+// still listed - hiding it is a choice about the table you get when there
+// is room - but says why it is not on screen.
+//
+// It returns a short hint for the menu and the longer reason for its title.
+function columnUnavailable(col) {
+  const s = state.snap;
+  if (col === "context" && !s.anyContext) return ["none here", "No agent here reports context"];
+  if (col === "ref" && !s.anyRef) return ["none here", "No agent here is on a pull request"];
+  if (col === "repo" && innerWidth < 1600) return ["too narrow", "Shown under the name at this width"];
+  if (col === "summary" && innerWidth <= 1200) return ["too narrow", "Shown in the readout at this width"];
+  return ["", ""];
+}
+
+function columnItems() {
+  const hidden = state.snap.hidden || {};
+  const fixed = (label) => ({ label, checked: true, disabled: true, run: () => {}, title: "Always shown" });
+  return [
+    fixed("Status"),
+    fixed("Name"),
+    ...HIDEABLE.map(([col, label]) => {
+      const [hint, why] = columnUnavailable(col);
+      return {
+        label, checked: !hidden[col], title: why, hint,
+        run: () => send({ cmd: "hide", col: col, on: !hidden[col] }),
+      };
+    }),
+  ];
+}
+
+function resetColumnsItem() {
+  return {
+    label: "Reset column widths", run: () => { state.columns = {}; paintColumns(); sendColumns(); },
+    disabled: Object.keys(state.columns).length === 0,
+  };
+}
+
+function columnMenuItems() {
+  return [{ heading: "Columns" }, ...columnItems(), { sep: true }, resetColumnsItem()];
+}
+
+function viewMenuItems() {
+  const s = state.snap;
+  const sorts = SORT_KEYS
+    .filter(([k]) => k !== "context" || s.anyContext)
+    .map(([k, label, key]) => ({
+      label, hint: key, radio: true, checked: s.sort === k,
+      run: () => send({ cmd: "sort", key: k }),
+    }));
+  const density = [["", "Automatic"], ["compact", "Compact"], ["comfy", "Comfortable"]]
+    .map(([v, label]) => ({
+      label, radio: true, checked: (s.density || "") === v,
+      run: () => send({ cmd: "density", value: v }),
+    }));
+  return [
+    {
+      // Grouping only means something under the status sort, so turning it
+      // on from another sort switches to that sort as well.
+      label: "Group by status", checked: s.grouped,
+      run: () => {
+        if (s.grouped) { send({ cmd: "group", on: false }); return; }
+        if (s.sort !== "status") send({ cmd: "sort", key: "status" });
+        send({ cmd: "group", on: true });
+      },
+    },
+    { heading: "Sort by" }, ...sorts,
+    { heading: "Density" }, ...density,
+    { heading: "Columns" }, ...columnItems().slice(2), resetColumnsItem(),
+    { sep: true },
+    { label: "Sidebar", hint: "⌘1", checked: sidebarShown(), run: toggleSidebar,
+      disabled: innerWidth < 980, title: innerWidth < 980 ? "The window is too narrow for the sidebar" : "" },
+    { label: "Keyboard shortcuts", hint: "?", run: openKeys },
+  ];
+}
+
 /* -------------------------------------------------------------- keyboard */
 
 const SORT_BY_KEY = { s: "status", a: "age", c: "context", n: "name", r: "repo", d: "dir" };
@@ -1050,8 +1319,15 @@ window.addEventListener("keydown", (e) => {
   }
   if (e.metaKey && e.key === "1") {
     e.preventDefault();
-    $("app").classList.toggle("no-sidebar");
-    $("sidebar").classList.toggle("hidden");
+    toggleSidebar();
+    return;
+  }
+
+  if (state.menu) { menuKey(e); return; }
+  // The sheet is modal: the dialog closes itself on Escape, and nothing
+  // else should reach the list behind it.
+  if ($("keys").open) {
+    if (e.key === "?") { e.preventDefault(); $("keys").close(); }
     return;
   }
 
@@ -1084,7 +1360,10 @@ window.addEventListener("keydown", (e) => {
     case "G": e.preventDefault(); moveCursor(1e6); return;
     case "e": e.preventDefault(); toggleEnded(); return;
     case "q": e.preventDefault(); send({ cmd: "quit" }); return;
+    case "?": e.preventDefault(); openKeys(); return;
+    case "ContextMenu": e.preventDefault(); openContextMenuFromKeyboard(); return;
   }
+  if (e.shiftKey && e.key === "F10") { e.preventDefault(); openContextMenuFromKeyboard(); return; }
   if (e.ctrlKey && e.key.toLowerCase() === "x") { e.preventDefault(); stopAgent(); return; }
   if (!e.ctrlKey && !e.metaKey && SORT_BY_KEY[e.key]) {
     e.preventDefault();
@@ -1101,13 +1380,28 @@ $("filterInput").addEventListener("blur", () => { state.typing = false; });
 $("filterInput").addEventListener("input", (e) => send({ cmd: "filter", q: e.target.value }));
 $("focusBtn").onclick = focusAgent;
 $("stopBtn").onclick = stopAgent;
-$("copycwd").onclick = () => {
-  const a = selected();
-  if (!a) return;
-  navigator.clipboard.writeText(a.cwd).then(
-    () => notice("copied " + a.cwdShort),
-    () => notice("could not copy", true));
+$("copycwd").onclick = copyCwd;
+$("viewBtn").onclick = () => {
+  if (state.menu && state.menu.opener === $("viewBtn")) { closeMenu(); return; }
+  const r = $("viewBtn").getBoundingClientRect();
+  openMenu(viewMenuItems(), { x: r.right, y: r.bottom + 4, alignRight: true, opener: $("viewBtn") });
 };
+$("keysBtn").onclick = openKeys;
+$("keysClose").onclick = () => $("keys").close();
+$("head").addEventListener("contextmenu", (e) => {
+  e.preventDefault();
+  openMenu(columnMenuItems(), { x: e.clientX, y: e.clientY });
+});
+// WebKit's own context menu - Reload, Inspect Element - means nothing in
+// this window. The filter keeps it, for cut, copy and paste.
+document.addEventListener("contextmenu", (e) => {
+  if (!e.target.closest("input")) e.preventDefault();
+});
+document.addEventListener("pointerdown", (e) => {
+  if (state.menu && !$("menu").contains(e.target) && e.target !== state.menu.opener &&
+      !(state.menu.opener && state.menu.opener.contains(e.target))) closeMenu();
+}, true);
+window.addEventListener("blur", () => closeMenu());
 
 // Go calls these. __snapshot carries a whole frame; a frame that arrives out
 // of order is dropped rather than rendered, since a stale one would move the
@@ -1127,11 +1421,16 @@ window.__snapshot = (json) => {
   // nothing for a keystroke should not cost you your place.
   const cur = selected();
   if (cur) state.cursor = { pid: cur.pid, sessionId: cur.sessionId };
+  // A row menu acts on the selected agent. If that agent left with this
+  // frame, the selection has moved on and the menu would act on another
+  // one - Stop included - so it closes rather than quietly retargeting.
+  if (state.menu && state.menu.targetKey && (!cur || key(cur) !== state.menu.targetKey)) closeMenu();
   render();
 };
 window.__notice = (text, alert) => notice(text, alert);
 
 window.addEventListener("resize", () => {
+  closeMenu();
   // A different width can mean a different readout shape, and the
   // stylesheet's estimate for it with it.
   reportCapacity();

@@ -43,7 +43,7 @@ yesterday. Unlike tmux managers, it sees every agent regardless of how it was
 launched - bare iTerm windows, tmux panes, background and SDK sessions - and
 joins each one to the operating-system window it is sitting in.
 
-![The Switchboard app window: nine Claude Code agents grouped into Needs you, Working, Idle and Shell, each row carrying its status, age, name, context-window meter, repository and branch, the pull request it is on, and a one-line summary. A sidebar counts the queues and the repositories; a readout below the list expands the selected agent](assets/screenshot.png)
+![The Switchboard app window: nine Claude Code agents grouped into Needs you, Working, Idle and Shell, each row carrying a status dot, age, name, context-window meter, the pull request it is on, and a one-line summary. A sidebar counts the queues and repositories and shows the usage windows and today's spend; a readout below the list expands the selected agent](assets/screenshot.png)
 
 ## Install
 
@@ -200,8 +200,11 @@ on, how long it has been running, and which pull request it is working on.
 Filtering and sorting happen in the same Go functions the terminal picker
 calls, so the two cannot disagree about what "sorted by status" means.
 
-The list groups by status - **Needs you**, **Working**, **Idle**, **Ended** -
-whenever it is sorted by status, and goes flat under any other sort. "Needs
+Sorted by status, the list can group into bands - **Needs you**, **Working**,
+**Idle**, **Ended** - and does by default; grouping can be turned off from the
+View menu, and the list is always flat under any other sort. Grouped,
+the band and the dot carry each row's status; flat, the row spells it out.
+"Needs
 you" is derived rather than reported: an idle agent whose last transcript
 entry is its own reply has finished its turn and handed control back. Ended
 agents stay listed, collapsed, and are never dropped.
@@ -228,8 +231,19 @@ the network. A pull request with checks still running is asked about again
 after thirty seconds instead, so a CI run is not two minutes stale.
 
 Density follows the window, not the agent count: the page measures how many
-rows it can show and switches to compact when they stop fitting. Compact and
-Comfy, and Grouped and Flat, are also yours to set, and the choice persists.
+rows it can show and switches to compact when they stop fitting. The **View**
+menu beside the filter sets density, grouping and sort, and shows or hides
+columns; the choices persist. Clicking a header sorts by that column, and the
+arrow marks the one in use.
+
+Right-click a row for its actions - focus its window, open its pull request,
+copy its working directory, filter to its repository, stop it - or press
+`shift+F10` for the same menu on the selected row. Right-click the headers to
+show or hide columns, or to reset their widths. Status and name always show.
+
+The window follows the system's light or dark appearance, and every colour in
+both is held to 4.5:1 for text and 3:1 for graphics by a test that reads the
+stylesheet.
 
 Column widths are yours too. A faint divider sits between the headers; drag
 one to move the boundary between two columns, and double-click it to hand
@@ -243,7 +257,7 @@ Keys: arrows or `j`/`k` move, `enter` focuses, `/` filters across name,
 directory, repository, model, pull request and summary, `s`/`a`/`c`/`n`/`r`/`d` sort by
 status, age, context, name, repo or directory, `e` expands the Ended group,
 `ctrl+x` (then `y`) stops an agent with SIGTERM, `cmd-1` hides the sidebar,
-`q` or `cmd-q` quits. Clicking a row selects it, double-clicking focuses it,
+`q` or `cmd-q` quits, and `?` opens a sheet listing all of them. Clicking a row selects it, double-clicking focuses it,
 and the sidebar's queue, repository and model lists are filters.
 
 The first focus from the app triggers a one-time macOS Automation permission

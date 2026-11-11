@@ -17,6 +17,8 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
+	"os/exec"
 	"strings"
 	"time"
 
@@ -41,6 +43,14 @@ func main() {
 		fmt.Fprint(w, strings.Replace(appui.Page(), "</body>", bridge+"</body>", 1))
 	})
 	http.HandleFunc("/cmd", func(w http.ResponseWriter, r *http.Request) {
+		// Only the page this server served may send commands. Any site
+		// open in the same browser can POST to localhost, and copy
+		// writes to the real clipboard.
+		if o := r.Header.Get("Origin"); r.Method != http.MethodPost || (o != "" && o != "http://"+r.Host) ||
+			r.Header.Get("Sec-Fetch-Site") == "cross-site" {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
 		var m struct {
 			Cmd    string        `json:"cmd"`
 			Key    string        `json:"key"`
@@ -49,6 +59,9 @@ func main() {
 			Value  string        `json:"value"`
 			Rows   int           `json:"rows"`
 			Widths appui.Columns `json:"widths"`
+			Col    string        `json:"col"`
+			PID    int           `json:"pid"`
+			Sess   string        `json:"sessionId"`
 		}
 		_ = json.NewDecoder(r.Body).Decode(&m)
 		switch m.Cmd {
@@ -64,6 +77,18 @@ func main() {
 			c.SetCapacity(m.Rows)
 		case "columns":
 			c.SetColumns(m.Widths)
+		case "hide":
+			c.SetHidden(m.Col, m.On)
+		case "copy":
+			// The real window copies through Go too; doing the same
+			// here keeps the menu item testable in a browser.
+			if a, ok := c.Find(m.PID, m.Sess); ok {
+				w.Header().Set("X-Notice", "copied "+a.Cwd)
+				if err := copyText(a.Cwd); err != nil {
+					w.Header().Set("X-Notice", "could not copy: "+err.Error())
+					w.Header().Set("X-Notice-Alert", "1")
+				}
+			}
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(c.Snapshot(time.Now()))
@@ -83,6 +108,8 @@ const bridge = `<script>
 async function cmd(json) {
   const res = await fetch("/cmd", { method: "POST", body: json });
   window.__snapshot(JSON.stringify(await res.json()));
+  const note = res.headers.get("X-Notice");
+  if (note) window.__notice(note, res.headers.get("X-Notice-Alert") === "1");
 }
 </script>
 `
@@ -312,4 +339,13 @@ func cache(i int) *ui.Cache {
 	default:
 		return nil
 	}
+}
+
+// copyText puts text on the clipboard with pbcopy, under a UTF-8 locale for
+// the same reason the app pins one. Off macOS it fails, and the page says so.
+func copyText(text string) error {
+	cmd := exec.Command("pbcopy")
+	cmd.Env = append(os.Environ(), "LC_ALL=en_US.UTF-8")
+	cmd.Stdin = strings.NewReader(text)
+	return cmd.Run()
 }

@@ -5,7 +5,9 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"os"
 	"os/exec"
+	"strings"
 	"sync"
 	"time"
 
@@ -191,5 +193,25 @@ func perform(control *appui.Controller, act appui.Action, notice func(string, bo
 			return
 		}
 		notice(fmt.Sprintf("sent SIGTERM to %s", agent.Name), false)
+	case "copy":
+		if err := copyText(agent.Cwd); err != nil {
+			notice("could not copy: "+err.Error(), true)
+			return
+		}
+		notice("copied "+agent.Cwd, false)
 	}
+}
+
+// copyText puts text on the clipboard. The page cannot: it is loaded with
+// no origin, and WebKit withholds navigator.clipboard from such a page.
+//
+// pbcopy reads its input in the locale's encoding, and an app launched from
+// the Dock or Finder inherits no LANG at all, so a directory name with an
+// accent in it would be mangled while pbcopy reported success. The locale is
+// pinned to UTF-8 for this one subprocess.
+func copyText(text string) error {
+	cmd := exec.Command("pbcopy")
+	cmd.Env = append(os.Environ(), "LC_ALL=en_US.UTF-8")
+	cmd.Stdin = strings.NewReader(text)
+	return cmd.Run()
 }
