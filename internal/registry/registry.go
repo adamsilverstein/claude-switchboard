@@ -8,7 +8,6 @@ package registry
 
 import (
 	"encoding/json"
-	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -102,30 +101,43 @@ func Scan(dir string) ([]Agent, error) {
 		if e.IsDir() || !strings.HasSuffix(e.Name(), ".json") {
 			continue
 		}
-		a, err := Load(filepath.Join(dir, e.Name()))
-		if err != nil {
-			continue
+		if a, ok := readFile(filepath.Join(dir, e.Name())); ok {
+			agents = append(agents, a)
 		}
-		agents = append(agents, a)
 	}
 	sort.Slice(agents, func(i, j int) bool { return agents[i].PID < agents[j].PID })
 	return agents, nil
 }
 
-// Load reads one registry file. It is for a decision that cannot rely on the
-// last scan, such as whether an agent is still idle right before it is
-// stopped.
-func Load(path string) (Agent, error) {
+// Reread reads an agent's registry file again, for a caller about to act on
+// the agent that will not trust a poll which may be a second old. ok is
+// false when the file has gone or now describes a different session.
+// Liveness is carried over from a: this does not consult the process table.
+func Reread(a Agent) (Agent, bool) {
+	if a.File == "" {
+		return Agent{}, false
+	}
+	fresh, ok := readFile(a.File)
+	if !ok || fresh.PID != a.PID || fresh.SessionID != a.SessionID {
+		return Agent{}, false
+	}
+	fresh.Live = a.Live
+	return fresh, true
+}
+
+// readFile parses one registry file. ok is false for a file that cannot be
+// read or parsed, or that names no PID.
+func readFile(path string) (Agent, bool) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return Agent{}, err
+		return Agent{}, false
 	}
 	var raw rawAgent
 	if err := json.Unmarshal(data, &raw); err != nil {
-		return Agent{}, err
+		return Agent{}, false
 	}
 	if raw.PID == 0 {
-		return Agent{}, fmt.Errorf("%s: no pid", path)
+		return Agent{}, false
 	}
 	a := Agent{
 		PID:                 raw.PID,
@@ -149,7 +161,7 @@ func Load(path string) (Agent, error) {
 	a.StartedAt = fromMillis(raw.StartedAt)
 	a.StatusUpdatedAt = fromMillis(raw.StatusUpdatedAt)
 	a.UpdatedAt = fromMillis(raw.UpdatedAt)
-	return a, nil
+	return a, true
 }
 
 func fromMillis(ms int64) time.Time {

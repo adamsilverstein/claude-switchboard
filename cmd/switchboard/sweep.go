@@ -63,11 +63,11 @@ func newSweeper(control *appui.Controller) sweeper {
 // it was swept from can be up to a poll old, and an agent that took a prompt
 // or a checkout that moved to new work in that time is not done any more.
 func recheckDone(r ui.Row) error {
-	a, err := registry.Load(r.Agent.File)
-	if err != nil {
+	a, ok := registry.Reread(r.Agent)
+	if !ok {
 		return errors.New("could not re-read its status")
 	}
-	if a.PID != r.Agent.PID || a.SessionID != r.Agent.SessionID || a.Status != "idle" {
+	if a.Status != "idle" {
 		return errors.New("no longer idle")
 	}
 	b, err := git.Branch(git.ExecRunner{}, r.Agent.Cwd)

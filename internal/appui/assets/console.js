@@ -20,11 +20,21 @@ const ENDED = "dead";
 const DONE = "done";
 const BAND_LABEL = { waiting: "Needs you", busy: "Working", idle: "Idle", shell: "Shell", done: "Done", dead: "Ended" };
 const QUEUE = ["waiting", "idle", "busy", "done", "dead"];
+// The sorts in the order the View menu lists them, with the key for each.
 const SORT_KEYS = [
-  ["status", "Status"], ["age", "Age"], ["context", "Context"],
-  ["name", "Name"], ["repo", "Repo"], ["dir", "Dir"],
+  ["status", "Status", "s"], ["age", "Age", "a"], ["context", "Context", "c"],
+  ["name", "Name", "n"], ["repo", "Repository", "r"], ["dir", "Directory", "d"],
 ];
-const ABBREV = { waiting: "wait", busy: "busy", idle: "idle", shell: "shell", done: "done", dead: "dead" };
+const STATUS_WORD = { waiting: "Waiting", busy: "Busy", idle: "Idle", shell: "Shell", done: "Done", dead: "Dead" };
+const ABBREV = { waiting: "Wait", busy: "Busy", idle: "Idle", shell: "Shell", done: "Done", dead: "Dead" };
+
+// The columns that can be taken out of the table, as the View menu and the
+// header's context menu name them. STATUS and NAME are not here: see Hidden
+// in controller.go, which a test holds to this list.
+const HIDEABLE = [
+  ["age", "Age"], ["context", "Context"], ["repo", "Repo"],
+  ["ref", "PR / Issue"], ["summary", "Summary"],
+];
 
 // Thresholds the design fixes: a context bar goes red once compaction is
 // close, and a usage meter once more than half the window is spent.
@@ -64,6 +74,14 @@ const state = {
   noticeTimer: null,
   columns: {},      // column name -> pixel width you dragged it to
   dragging: null,   // the column being dragged, or null
+  peek: null,       // {pid, sessionId} of the agent being peeked at, or null
+  peekTimer: null,
+  // Replies still being typed, by agent key: {id, text}. Kept apart from
+  // the panel so closing and reopening it cannot start a second reply to
+  // the same agent, or let the first one's answer clear a newer draft.
+  replies: new Map(),
+  replySeq: 0,
+  menu: null,       // {opener, onClose} while a menu is open
 };
 
 /* ------------------------------------------------------------ utilities */
@@ -371,6 +389,10 @@ function render() {
   const s = state.snap;
   if (!s) return;
   document.body.classList.toggle("compact", s.compact);
+  // Grouped, the band and the dot carry status, and the word steps out.
+  document.body.classList.toggle("grouped", s.grouped);
+  const hidden = s.hidden || {};
+  for (const [col] of HIDEABLE) document.body.classList.toggle("hide-" + col, !!hidden[col]);
   // A column no agent on this machine can fill leaves the table. Without
   // the statusline shim that is the whole context column, and without gh -
   // or without a branch that has a pull request - it is the ref column too.
@@ -436,6 +458,8 @@ function renderSidebar(s) {
     meter("codex7d", acct.codex7dPct, resetNote(acct.codex7dResetsIn)),
   ].some(Boolean);
 
+  renderToday(acct.today);
+
   const age = s.polledAt ? Math.max(0, Math.round((Date.now() - Date.parse(s.polledAt)) / 1000)) : null;
   $("polled").textContent = age === null ? "" : "polled " + age + "s ago";
 }
@@ -476,6 +500,59 @@ function facets(blockId, listId, rows, keyOf, noteOf) {
   }
 }
 
+// renderToday draws the day's spend from the ledger, or drops the panel
+// when nothing has been recorded today.
+function renderToday(t) {
+  $("today").hidden = !t;
+  if (!t) return;
+  $("todayCost").textContent = t.cost;
+  // The dollar figure is what Claude Code reports, which on a subscription
+  // is the API price of the work rather than a bill; the label says so.
+  // Each part is kept whole, so a narrow sidebar breaks between them rather
+  // than leaving "-478" alone on a line.
+  const parts = [
+    t.sessions + (t.sessions === 1 ? " session" : " sessions"),
+    t.api ? t.api + " model time" : "",
+    t.lines || "",
+  ].filter(Boolean);
+  $("todayNote").replaceChildren(...parts.flatMap((p, i) => i ? [" · ", el("span", null, p)] : [el("span", null, p)]));
+
+  const hours = t.hours || [];
+  const peak = Math.max(0, ...hours);
+  const spark = $("todayHours");
+  spark.replaceChildren();
+  hours.forEach((usd, h) => {
+    const i = el("i", usd > 0 ? null : "none");
+    if (usd > 0 && peak > 0) i.style.height = Math.max(8, Math.round(usd / peak * 100)) + "%";
+    i.title = String(h).padStart(2, "0") + ":00  $" + usd.toFixed(2);
+    spark.append(i);
+  });
+  const busiest = hours.indexOf(peak);
+  spark.setAttribute("role", "img");
+  // The bars' titles are hover-only, so the label carries every hour that
+  // had spend. Empty hours are left out; a list of twenty "$0.00"s is noise.
+  const spent = hours.flatMap((usd, h) => usd > 0 ? [String(h).padStart(2, "0") + ":00 $" + usd.toFixed(2)] : []);
+  spark.setAttribute("aria-label", peak > 0
+    ? "Spend by hour, busiest " + String(busiest).padStart(2, "0") + ":00: " + spent.join(", ")
+    : "Spend by hour: none yet");
+
+  shares("todayRepos", t.repos);
+  shares("todayModels", t.models);
+}
+
+// shares lists one breakdown of the day's spend: name, sessions, cost.
+function shares(id, rows) {
+  const list = $(id);
+  list.replaceChildren();
+  for (const r of rows || []) {
+    const row = el("div", "share");
+    row.title = r.name + ": " + r.cost + " across " + r.sessions + (r.sessions === 1 ? " session" : " sessions");
+    row.append(el("b", null, r.name), el("i", null, String(r.sessions)), el("span", null, r.cost));
+    list.append(row);
+  }
+  list.parentElement.hidden = !rows || rows.length === 0;
+}
+
 // resetNote describes when a rate-limit window rolls over, when known.
 function resetNote(inHowLong) {
   return inHowLong ? "resets in " + inHowLong : "";
@@ -496,29 +573,14 @@ function meter(id, pct, note) {
   b.replaceChildren(...bar(pct, pct >= USAGE_ALERT).childNodes);
   b.classList.toggle("over", pct >= USAGE_ALERT);
   $(id + "Note").textContent = note;
+  // When it resets is the detail, shown on hover; the note itself is read
+  // out with the meter.
+  const label = box.querySelector(".label");
+  box.title = [label.dataset.full || label.textContent, pct + "%", note].filter(Boolean).join(" · ");
   return true;
 }
 
 function renderToolbar(s) {
-  const keys = $("sortKeys");
-  if (!keys.childElementCount) {
-    for (const [k, label] of SORT_KEYS) {
-      const b = el("button", null, label);
-      b.type = "button";
-      b.dataset.sort = k;
-      b.onclick = () => send({ cmd: "sort", key: k });
-      keys.append(b);
-    }
-  }
-  for (const b of keys.children) b.setAttribute("aria-pressed", String(b.dataset.sort === s.sort));
-  for (const b of $("viewKeys").children) {
-    b.setAttribute("aria-pressed", String((b.dataset.group === "1") === s.grouped));
-    b.onclick = () => send({ cmd: "group", on: b.dataset.group === "1" });
-  }
-  for (const b of document.querySelectorAll("[data-density]")) {
-    b.setAttribute("aria-pressed", String((b.dataset.density === "compact") === s.compact));
-    b.onclick = () => send({ cmd: "density", value: b.dataset.density });
-  }
   for (const b of $("head").querySelectorAll("[data-sort]")) {
     if (b.dataset.sort === s.sort) b.setAttribute("aria-sort", "ascending");
     else b.removeAttribute("aria-sort");
@@ -540,13 +602,14 @@ function renderList(s) {
   const cur = key(selected());
   if (!s.grouped) {
     for (const a of rows) list.append(rowEl(a, cur, s));
-    return;
+  } else {
+    for (const [status, group] of bands(rows)) {
+      list.append(bandEl(status, group.length));
+      if (state.collapsed.has(status)) continue;
+      for (const a of group) list.append(rowEl(a, cur, s));
+    }
   }
-  for (const [status, group] of bands(rows)) {
-    list.append(bandEl(status, group.length));
-    if (state.collapsed.has(status)) continue;
-    for (const a of group) list.append(rowEl(a, cur, s));
-  }
+  markMenuTarget();
 }
 
 // bands splits the rows into the blocks the list draws, in the order Go put
@@ -571,7 +634,7 @@ const BAND_COLOUR = {
 };
 
 function bandEl(status, n) {
-  const b = el("div", "band");
+  const b = el("div", status === ENDED ? "band toggle" : "band");
   const label = el("span", null, (BAND_LABEL[status] || "Unknown") + " · " + n);
   label.style.color = BAND_COLOUR[status] || "var(--muted)";
   b.append(label);
@@ -596,10 +659,11 @@ function rowEl(a, cur, s) {
   r.setAttribute("role", "row");
   r.dataset.status = a.status || "";
   r.dataset.live = String(a.live);
+  r.dataset.key = key(a);
   r.setAttribute("aria-selected", String(key(a) === cur));
 
   r.append(line("dot", a.live ? "●" : "○"));
-  r.append(line("status", s.compact ? (ABBREV[a.status] || "?") : (a.status || "?")));
+  r.append(line("status", (s.compact ? ABBREV : STATUS_WORD)[a.status] || a.status || "?"));
   r.append(line("age", a.age));
 
   const nameCell = el("span", "name-cell");
@@ -621,6 +685,12 @@ function rowEl(a, cur, s) {
 
   r.onclick = () => { state.cursor = { pid: a.pid, sessionId: a.sessionId }; render(); };
   r.ondblclick = focusAgent;
+  r.oncontextmenu = (e) => {
+    e.preventDefault();
+    state.cursor = { pid: a.pid, sessionId: a.sessionId };
+    render();
+    openRowMenu({ x: e.clientX, y: e.clientY });
+  };
   return r;
 }
 
@@ -646,13 +716,41 @@ function refCell(a) {
     n.disabled = true;
   }
   c.append(n);
+  const marks = refMarks(a);
+  if (marks.length) {
+    const m = marks[0];
+    const g = el("i", "mark m-" + m.tone, m.glyph);
+    g.title = marks.map((k) => k.glyph + " " + k.text).join(" · ");
+    g.setAttribute("aria-label", marks.map((k) => k.text).join(", "));
+    c.append(g);
+  }
   if (a.refState) c.append(el("i", "state s-" + a.refState, a.refState));
   return c;
 }
 
+// refMarks is what an open pull request's checks, review and mergeability
+// say, worst first. The table has room for one glyph beside the number, so
+// it shows the first; the readout and the tooltip show them all.
+//
+// Order is urgency: a red run or a change request is work handed back, a
+// conflict blocks the merge, a run still going is a wait, and green or a
+// pending review is the quiet end of the list.
+function refMarks(a) {
+  const out = [];
+  if (a.refChecks === "fail") out.push({ tone: "fail", glyph: "✗", text: a.refChecksLabel });
+  if (a.refReview === "changes") out.push({ tone: "alert", glyph: "●", text: "changes requested" });
+  if (a.refConflicts) out.push({ tone: "alert", glyph: "⚠\uFE0E", text: "conflicts" });
+  if (a.refChecks === "pending") out.push({ tone: "wait", glyph: "◌", text: a.refChecksLabel });
+  if (a.refChecks === "pass") out.push({ tone: "pass", glyph: "✓", text: a.refChecksLabel });
+  if (a.refReview === "approved") out.push({ tone: "ok", glyph: "✓", text: "approved" });
+  if (a.refReview === "required") out.push({ tone: "quiet", glyph: "◐", text: "review required" });
+  return out;
+}
+
 function refTitle(a) {
   const what = (a.refKind === "issue" ? "issue " : "pull request ") + a.ref;
-  return [what, a.refState, a.refTitle].filter(Boolean).join(" · ");
+  const marks = refMarks(a).map((k) => k.text);
+  return [what, a.refState, ...marks, a.refTitle].filter(Boolean).join(" · ");
 }
 
 function repoLabel(a) {
@@ -687,12 +785,16 @@ function renderReadout(a) {
     $("last").hidden = true;
     $("focusBtn").disabled = true;
     $("stopBtn").disabled = true;
+    $("peekBtn").disabled = true;
     readout.remove("strip");
     return;
   }
-  $("readlabel").textContent = "Selection · " + a.name;
+  // The name is the agent's own words, so it keeps its own case; only the
+  // section label is set in capitals.
+  $("readlabel").replaceChildren("Selection · ", el("span", "readname", a.name));
   $("focusBtn").disabled = !a.focusable;
   $("stopBtn").disabled = !a.live;
+  $("peekBtn").disabled = false;
 
   // The four-cell readout costs about 130px of height. Once the list is
   // already overflowing, that height is worth more to the list.
@@ -749,7 +851,8 @@ function stripLine(a) {
     a.contextPct === null || a.contextPct === undefined ? "" : "ctx " + a.contextPct + "%",
     a.usage ? a.usage.cost : "",
     subagentsLabel(a),
-    a.elapsed, repoLabel(a), a.ref ? a.ref + " " + a.refTitle : "", a.tty,
+    a.elapsed, repoLabel(a), a.ref ? a.ref + " " + a.refTitle : "",
+    ...refMarks(a).map((k) => k.text), a.tty,
     a.permissionMode ? a.permissionMode + " mode" : "",
   ].filter(Boolean).join(" · ");
 }
@@ -782,6 +885,16 @@ function sessionCell(a) {
     l.append(n);
     if (a.refTitle) l.append(line("dim", " " + a.refTitle));
     c.append(l);
+    const marks = refMarks(a);
+    if (marks.length) {
+      const m = line("line marks", "");
+      for (const k of marks) {
+        const item = el("span", "mark-item");
+        item.append(el("span", "mark m-" + k.tone, k.glyph), " " + k.text);
+        m.append(item);
+      }
+      c.append(m);
+    }
   }
   if (a.elapsed) c.append(line("line soft", "elapsed " + a.elapsed));
   if (a.permissionMode) c.append(el("span", "chip", a.permissionMode + " mode"));
@@ -983,6 +1096,449 @@ function setFilter(q) {
   send({ cmd: "filter", q: q });
 }
 
+/* ------------------------------------------------------------------ peek */
+
+// How often an open panel asks for the exchange again, so the answer to a
+// reply appears without closing and reopening it.
+const PEEK_REFRESH_MS = 1500;
+
+function peekedAgent() {
+  if (!state.peek || !state.snap) return null;
+  return state.snap.agents.find((a) => key(a) === key(state.peek)) || null;
+}
+
+function openPeek() {
+  const a = selected();
+  if (!a) return;
+  state.peek = { pid: a.pid, sessionId: a.sessionId };
+  $("peektitle").textContent = a.name;
+  // Forget what the last panel drew, or an unchanged exchange for the same
+  // agent would match it and never replace the loading line.
+  delete $("peekbody").dataset.sig;
+  delete $("peekbody").dataset.opened;
+  $("peekbody").replaceChildren(line("soft", "reading transcript…"));
+  $("peekinput").value = "";
+  $("peek").hidden = false;
+  renderPeekState();
+  requestPeek();
+  clearInterval(state.peekTimer);
+  state.peekTimer = setInterval(requestPeek, PEEK_REFRESH_MS);
+  if (!$("peekinput").disabled) $("peekinput").focus();
+  else $("peekbody").focus();
+}
+
+function closePeek() {
+  state.peek = null;
+  clearInterval(state.peekTimer);
+  $("peek").hidden = true;
+  $("list").focus();
+}
+
+// trapTab keeps Tab and shift-Tab cycling through the panel's own controls
+// while it is open. It is a modal dialog: focus that walks out of it lands
+// on a list whose keys the panel has taken over.
+function trapTab(e) {
+  const stops = [...$("peek").querySelectorAll("button, input, [tabindex]")]
+    .filter((n) => !n.disabled && n.offsetParent !== null);
+  if (!stops.length) return;
+  const first = stops[0];
+  const last = stops[stops.length - 1];
+  const at = stops.indexOf(document.activeElement);
+  if (e.shiftKey && (at <= 0)) { e.preventDefault(); last.focus(); }
+  else if (!e.shiftKey && (at === -1 || at === stops.length - 1)) { e.preventDefault(); first.focus(); }
+}
+
+function requestPeek() {
+  if (state.peek) send({ cmd: "peek", pid: state.peek.pid, sessionId: state.peek.sessionId });
+}
+
+// renderPeekState follows the agent through each frame: its status in the
+// header, and whether a reply may go to it. The rule is Go's, so a status
+// the page has never heard of still gets the right answer.
+function renderPeekState() {
+  if (!state.peek) return;
+  const a = peekedAgent();
+  const why = !a ? "agent is gone" : a.replyBlocked || "";
+  const sending = state.replies.has(key(state.peek));
+  $("peekmeta").textContent = a ? [BAND_LABEL[a.status] || a.status, a.age].filter(Boolean).join(" · ") : "ended";
+  $("peekinput").disabled = !!why || sending;
+  $("peeksend").disabled = !!why || sending;
+  $("peekwhy").hidden = !why;
+  $("peekwhy").textContent = why;
+}
+
+function renderPeek(v) {
+  const body = $("peekbody");
+  // Rerendering every refresh would throw away a scroll position and a
+  // selection; only an exchange that changed is worth redrawing.
+  const sig = JSON.stringify([v.asked, v.reply, v.error]);
+  if (body.dataset.sig === sig) return;
+  body.dataset.sig = sig;
+  const atEnd = body.scrollHeight - body.scrollTop - body.clientHeight < 24;
+
+  if (v.error) {
+    body.replaceChildren(line("soft", v.error));
+    return;
+  }
+  const turns = [];
+  turns.push(turn("you", v.asked ? markdown(v.asked)
+    : [line("soft", "your last prompt is further back than the tail reaches")]));
+  const said = v.reply ? markdown(v.reply) : [line("soft", "no reply yet")];
+  if (v.truncated) said.unshift(line("soft", "… earlier text cut"));
+  turns.push(turn("agent", said));
+  body.replaceChildren(...turns);
+  // The question is at the end of a reply, so that is where the panel
+  // opens - and where it stays, unless you have scrolled up to read.
+  if (atEnd || !body.dataset.opened) body.scrollTop = body.scrollHeight;
+  body.dataset.opened = "1";
+}
+
+function turn(who, nodes) {
+  const t = el("div", "turn " + who);
+  const said = el("div", "said");
+  said.append(...nodes);
+  t.append(el("span", "who", who), said);
+  return t;
+}
+
+// markdown renders the handful of shapes a reply is made of - fenced code,
+// headings, paragraphs and lists, inline code and bold - as DOM nodes. It
+// builds with textContent like everything else here: the text is the
+// agent's, and nothing in it is ever parsed as HTML.
+function markdown(text) {
+  const out = [];
+  let prose = [];
+  let fence = null; // {mark, lines} while inside a code block
+  const flushProse = () => {
+    for (const block of prose.join("\n").split(/\n{2,}/)) {
+      const trimmed = block.replace(/^\n+|\n+$/g, "");
+      if (!trimmed) continue;
+      const p = el("p");
+      const h = /^#{1,6}\s+(.*)$/.exec(trimmed);
+      if (h && !trimmed.includes("\n")) {
+        p.className = "heading";
+        p.append(...inline(h[1]));
+      } else {
+        p.append(...inline(trimmed));
+      }
+      out.push(p);
+    }
+    prose = [];
+  };
+  const flushFence = () => {
+    const pre = el("pre");
+    pre.append(el("code", "", fence.lines.join("\n")));
+    out.push(pre);
+    fence = null;
+  };
+  for (const ln of text.split("\n")) {
+    if (fence) {
+      // A fence closes only on its own character, at least as long as
+      // it opened, with nothing after it - so a four-backtick block can
+      // quote a three-backtick one.
+      const close = /^ {0,3}(`{3,}|~{3,})\s*$/.exec(ln);
+      if (close && close[1][0] === fence.mark[0] && close[1].length >= fence.mark.length) flushFence();
+      else fence.lines.push(ln);
+      continue;
+    }
+    const open = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(ln);
+    if (open && !(open[1][0] === "`" && open[2].includes("`"))) {
+      flushProse();
+      fence = { mark: open[1], lines: [] };
+      continue;
+    }
+    prose.push(ln);
+  }
+  if (fence) flushFence(); // an unclosed fence runs to the end
+  flushProse();
+  return out;
+}
+
+function inline(text) {
+  const nodes = [];
+  const re = /`([^`\n]+)`|\*\*([^*\n]+)\*\*/g;
+  let last = 0;
+  let m;
+  while ((m = re.exec(text))) {
+    if (m.index > last) nodes.push(document.createTextNode(text.slice(last, m.index)));
+    nodes.push(m[1] !== undefined ? el("code", "", m[1]) : el("strong", "", m[2]));
+    last = re.lastIndex;
+  }
+  if (last < text.length) nodes.push(document.createTextNode(text.slice(last)));
+  return nodes;
+}
+
+function sendReply() {
+  const a = peekedAgent();
+  const text = $("peekinput").value.trim();
+  if (!a || !text || a.replyBlocked || state.replies.has(key(a))) return;
+  const id = ++state.replySeq;
+  state.replies.set(key(a), { id, text });
+  renderPeekState();
+  notice("sending to " + a.name + "…");
+  send({ cmd: "reply", pid: a.pid, sessionId: a.sessionId, text: text, id: id });
+}
+
+// The copy happens on the Go side. The window loads this page with no
+// origin of its own, and WebKit gives such a page no clipboard: the call
+// throws before it can even fail. Only the agent is named, so the path that
+// lands on the clipboard is the one Go has on record, not one from the page.
+function copyCwd() {
+  const a = selected();
+  if (!a) return;
+  send({ cmd: "copy", pid: a.pid, sessionId: a.sessionId });
+}
+
+function openRef() {
+  const a = selected();
+  if (a && a.refUrl) send({ cmd: "open", url: a.refUrl });
+}
+
+function toggleSidebar() {
+  $("app").classList.toggle("no-sidebar");
+  $("sidebar").classList.toggle("hidden");
+}
+
+function sidebarShown() {
+  return !$("sidebar").classList.contains("hidden") && $("sidebar").offsetWidth > 0;
+}
+
+function openKeys() {
+  closeMenu();
+  if (!$("keys").open) $("keys").showModal();
+}
+
+/* ----------------------------------------------------------------- menus */
+
+/* One menu element serves three menus: View, a row's actions, and the
+ * header's columns. Each is a list of items built fresh when it opens, so
+ * what it shows is always the frame that is on screen now.
+ *
+ * An item is {label, hint, run, disabled, checked, radio, danger}, or
+ * {heading} for a group label, or {sep: true} for a rule. checked makes it a
+ * menuitemcheckbox, radio a menuitemradio; the tick is drawn from
+ * aria-checked so the state a screen reader hears is the one on screen.
+ *
+ * Every control that left the toolbar or the legend is reachable here, from
+ * a header, or from a key - the menus add ways in and take none away.
+ */
+
+function openMenu(items, at) {
+  closeMenu();
+  const m = $("menu");
+  m.replaceChildren();
+  for (const it of items) {
+    if (it.sep) { m.append(el("hr")); continue; }
+    if (it.heading) { m.append(el("span", "label heading", it.heading)); continue; }
+    const b = el("button", it.danger ? "danger" : null);
+    b.type = "button";
+    b.tabIndex = -1;
+    if (it.checked !== undefined) {
+      b.setAttribute("role", it.radio ? "menuitemradio" : "menuitemcheckbox");
+      b.setAttribute("aria-checked", String(!!it.checked));
+    } else {
+      b.setAttribute("role", "menuitem");
+    }
+    b.append(el("span", null, it.label));
+    if (it.hint) {
+      const h = el("span", "hint", it.hint);
+      h.setAttribute("aria-hidden", "true");
+      b.append(h);
+    }
+    if (it.title) b.title = it.title;
+    b.disabled = !!it.disabled;
+    b.onclick = () => { closeMenu(); it.run(); };
+    m.append(b);
+  }
+  if (at.label) m.setAttribute("aria-label", at.label);
+  else m.removeAttribute("aria-label");
+  m.hidden = false;
+
+  // Kept inside the window: a menu opened near the right or bottom edge
+  // opens back towards the middle, the way a native one does.
+  const w = m.offsetWidth;
+  const h = m.offsetHeight;
+  let x = at.alignRight ? at.x - w : at.x;
+  let y = at.y;
+  if (x + w > innerWidth - 8) x = innerWidth - 8 - w;
+  if (y + h > innerHeight - 8) y = Math.max(8, (at.alignRight ? innerHeight - 8 - h : at.y - h));
+  m.style.left = Math.max(8, x) + "px";
+  m.style.top = Math.max(8, y) + "px";
+
+  // Where focus goes back to when the menu is dismissed: its button, or
+  // whatever had focus when a context menu opened over it.
+  const back = at.opener || (document.activeElement !== document.body ? document.activeElement : null);
+  state.menu = { opener: at.opener || null, back, targetKey: at.targetKey || "" };
+  if (at.opener) at.opener.setAttribute("aria-expanded", "true");
+  markMenuTarget();
+  const first = menuItems()[0];
+  if (first) first.focus();
+}
+
+function closeMenu() {
+  if (!state.menu) return;
+  const { opener } = state.menu;
+  state.menu = null;
+  $("menu").hidden = true;
+  if (opener) opener.setAttribute("aria-expanded", "false");
+  markMenuTarget();
+}
+
+// The row a menu was opened on keeps an outline while it is up. Marked after
+// every render, since a poll landing under an open menu redraws the rows.
+function markMenuTarget() {
+  const k = state.menu ? state.menu.targetKey : "";
+  for (const r of $("list").querySelectorAll(".row")) r.classList.toggle("menu-target", !!k && r.dataset.key === k);
+}
+
+function menuItems() {
+  return [...$("menu").querySelectorAll("button:not(:disabled)")];
+}
+
+// While a menu is open it has the keyboard: arrows move, Enter or Space
+// chooses, Escape and Tab close it.
+function menuKey(e) {
+  const items = menuItems();
+  const i = items.indexOf(document.activeElement);
+  const go = (n) => { e.preventDefault(); if (items.length) items[(n + items.length) % items.length].focus(); };
+  switch (e.key) {
+    case "ArrowDown": go(i + 1); return;
+    case "ArrowUp": go(i < 0 ? -1 : i - 1); return;
+    case "Home": go(0); return;
+    case "End": go(-1); return;
+    case "Enter": case " ":
+      e.preventDefault();
+      if (i >= 0) items[i].click();
+      return;
+    case "Escape": case "Tab": {
+      // Focus goes back where it came from either way. Escape stops
+      // there; Tab carries on from it to the next control, as it would
+      // have if the menu had never opened.
+      if (e.key === "Escape") e.preventDefault();
+      const back = state.menu.back;
+      closeMenu();
+      if (back && back.isConnected) back.focus();
+      return;
+    }
+  }
+  // A letter jumps to the next item that starts with it.
+  if (e.key.length === 1 && !e.metaKey && !e.ctrlKey) {
+    e.preventDefault();
+    const k = e.key.toLowerCase();
+    const order = items.slice(i + 1).concat(items.slice(0, i + 1));
+    const hit = order.find((b) => b.textContent.trim().toLowerCase().startsWith(k));
+    if (hit) hit.focus();
+  }
+}
+
+// The selected row's actions: what the buttons under the readout do, plus
+// opening its pull request, where the pointer already is. With no pointer -
+// shift-F10 or the menu key - it opens on the row itself.
+function openRowMenu(at) {
+  const a = selected();
+  if (!a) return;
+  const row = $("list").querySelector('[aria-selected="true"]');
+  if (!at) {
+    if (!row) return;
+    const r = row.getBoundingClientRect();
+    at = { x: r.left + 40, y: r.bottom };
+  }
+  const refWord = a.refKind === "issue" ? "issue" : "pull request";
+  openMenu([
+    { label: "Focus window", hint: "⏎", run: focusAgent, disabled: !a.focusable },
+    { label: "Peek and reply", hint: "␣", run: openPeek },
+    { label: a.ref ? "Open " + refWord + " " + a.ref : "Open pull request", run: openRef, disabled: !a.refUrl },
+    { label: "Copy working directory", run: copyCwd, disabled: !a.cwd },
+    { label: "Filter to " + (a.repo || "this repository"), run: () => setFilter(a.repo), disabled: !a.repo },
+    { sep: true },
+    { label: "Stop…", hint: "⌃X", run: stopAgent, disabled: !a.live, danger: true },
+  ], { x: at.x, y: at.y, targetKey: key(a), label: "Actions for " + a.name });
+}
+
+// The menu key and shift-F10 open the menu for whatever has focus: the
+// columns menu on a header, the selected row's actions anywhere else.
+function openContextMenuFromKeyboard() {
+  const inHead = document.activeElement && $("head").contains(document.activeElement);
+  if (!inHead) { openRowMenu(null); return; }
+  const r = document.activeElement.getBoundingClientRect();
+  openMenu(columnMenuItems(), { x: r.left, y: r.bottom + 4 });
+}
+
+// A column the window has no room for, or that nothing here can fill, is
+// still listed - hiding it is a choice about the table you get when there
+// is room - but says why it is not on screen.
+//
+// It returns a short hint for the menu and the longer reason for its title.
+function columnUnavailable(col) {
+  const s = state.snap;
+  if (col === "context" && !s.anyContext) return ["none here", "No agent here reports context"];
+  if (col === "ref" && !s.anyRef) return ["none here", "No agent here is on a pull request"];
+  if (col === "repo" && innerWidth < 1600) return ["too narrow", "Shown under the name at this width"];
+  if (col === "summary" && innerWidth <= 1200) return ["too narrow", "Shown in the readout at this width"];
+  return ["", ""];
+}
+
+function columnItems() {
+  const hidden = state.snap.hidden || {};
+  const fixed = (label) => ({ label, checked: true, disabled: true, run: () => {}, title: "Always shown" });
+  return [
+    fixed("Status"),
+    fixed("Name"),
+    ...HIDEABLE.map(([col, label]) => {
+      const [hint, why] = columnUnavailable(col);
+      return {
+        label, checked: !hidden[col], title: why, hint,
+        run: () => send({ cmd: "hide", col: col, on: !hidden[col] }),
+      };
+    }),
+  ];
+}
+
+function resetColumnsItem() {
+  return {
+    label: "Reset column widths", run: () => { state.columns = {}; paintColumns(); sendColumns(); },
+    disabled: Object.keys(state.columns).length === 0,
+  };
+}
+
+function columnMenuItems() {
+  return [{ heading: "Columns" }, ...columnItems(), { sep: true }, resetColumnsItem()];
+}
+
+function viewMenuItems() {
+  const s = state.snap;
+  const sorts = SORT_KEYS
+    .filter(([k]) => k !== "context" || s.anyContext)
+    .map(([k, label, key]) => ({
+      label, hint: key, radio: true, checked: s.sort === k,
+      run: () => send({ cmd: "sort", key: k }),
+    }));
+  const density = [["", "Automatic"], ["compact", "Compact"], ["comfy", "Comfortable"]]
+    .map(([v, label]) => ({
+      label, radio: true, checked: (s.density || "") === v,
+      run: () => send({ cmd: "density", value: v }),
+    }));
+  return [
+    {
+      // Grouping only means something under the status sort, so turning it
+      // on from another sort switches to that sort as well.
+      label: "Group by status", checked: s.grouped,
+      run: () => {
+        if (s.grouped) { send({ cmd: "group", on: false }); return; }
+        if (s.sort !== "status") send({ cmd: "sort", key: "status" });
+        send({ cmd: "group", on: true });
+      },
+    },
+    { heading: "Sort by" }, ...sorts,
+    { heading: "Density" }, ...density,
+    { heading: "Columns" }, ...columnItems().slice(2), resetColumnsItem(),
+    { sep: true },
+    { label: "Sidebar", hint: "⌘1", checked: sidebarShown(), run: toggleSidebar,
+      disabled: innerWidth < 980, title: innerWidth < 980 ? "The window is too narrow for the sidebar" : "" },
+    { label: "Keyboard shortcuts", hint: "?", run: openKeys },
+  ];
+}
+
 /* -------------------------------------------------------------- keyboard */
 
 const SORT_BY_KEY = { s: "status", a: "age", c: "context", n: "name", r: "repo", d: "dir" };
@@ -997,8 +1553,23 @@ window.addEventListener("keydown", (e) => {
   }
   if (e.metaKey && e.key === "1") {
     e.preventDefault();
-    $("app").classList.toggle("no-sidebar");
-    $("sidebar").classList.toggle("hidden");
+    toggleSidebar();
+    return;
+  }
+
+  if (state.menu) { menuKey(e); return; }
+  // The sheet is modal: the dialog closes itself on Escape, and nothing
+  // else should reach the list behind it.
+  if ($("keys").open) {
+    if (e.key === "?") { e.preventDefault(); $("keys").close(); }
+    return;
+  }
+
+  // While the panel is open the keys belong to it: typing a reply must not
+  // sort the list or quit the window. Escape is the one way out.
+  if (state.peek) {
+    if (e.key === "Escape") { e.preventDefault(); closePeek(); }
+    else if (e.key === "Tab") trapTab(e);
     return;
   }
 
@@ -1030,6 +1601,7 @@ window.addEventListener("keydown", (e) => {
     case "ArrowUp": case "k": e.preventDefault(); moveCursor(-1); return;
     case "ArrowDown": case "j": e.preventDefault(); moveCursor(1); return;
     case "Enter": e.preventDefault(); focusAgent(); return;
+    case " ": e.preventDefault(); openPeek(); return;
     case "/": e.preventDefault(); $("filterInput").focus(); return;
     case "Escape": e.preventDefault(); state.queue = null; setFilter(""); return;
     case "g": e.preventDefault(); moveCursor(-1e6); return;
@@ -1037,7 +1609,10 @@ window.addEventListener("keydown", (e) => {
     case "e": e.preventDefault(); toggleEnded(); return;
     case "X": if (e.ctrlKey || e.metaKey) break; e.preventDefault(); sweepDone(); return;
     case "q": e.preventDefault(); send({ cmd: "quit" }); return;
+    case "?": e.preventDefault(); openKeys(); return;
+    case "ContextMenu": e.preventDefault(); openContextMenuFromKeyboard(); return;
   }
+  if (e.shiftKey && e.key === "F10") { e.preventDefault(); openContextMenuFromKeyboard(); return; }
   if (e.ctrlKey && e.key.toLowerCase() === "x") { e.preventDefault(); stopAgent(); return; }
   if (!e.ctrlKey && !e.metaKey && SORT_BY_KEY[e.key]) {
     e.preventDefault();
@@ -1054,13 +1629,31 @@ $("filterInput").addEventListener("blur", () => { state.typing = false; });
 $("filterInput").addEventListener("input", (e) => send({ cmd: "filter", q: e.target.value }));
 $("focusBtn").onclick = focusAgent;
 $("stopBtn").onclick = stopAgent;
-$("copycwd").onclick = () => {
-  const a = selected();
-  if (!a) return;
-  navigator.clipboard.writeText(a.cwd).then(
-    () => notice("copied " + a.cwdShort),
-    () => notice("could not copy", true));
+$("peekBtn").onclick = openPeek;
+$("peekclose").onclick = closePeek;
+$("peekform").addEventListener("submit", (e) => { e.preventDefault(); sendReply(); });
+$("copycwd").onclick = copyCwd;
+$("viewBtn").onclick = () => {
+  if (state.menu && state.menu.opener === $("viewBtn")) { closeMenu(); return; }
+  const r = $("viewBtn").getBoundingClientRect();
+  openMenu(viewMenuItems(), { x: r.right, y: r.bottom + 4, alignRight: true, opener: $("viewBtn") });
 };
+$("keysBtn").onclick = openKeys;
+$("keysClose").onclick = () => $("keys").close();
+$("head").addEventListener("contextmenu", (e) => {
+  e.preventDefault();
+  openMenu(columnMenuItems(), { x: e.clientX, y: e.clientY });
+});
+// WebKit's own context menu - Reload, Inspect Element - means nothing in
+// this window. The filter keeps it, for cut, copy and paste.
+document.addEventListener("contextmenu", (e) => {
+  if (!e.target.closest("input")) e.preventDefault();
+});
+document.addEventListener("pointerdown", (e) => {
+  if (state.menu && !$("menu").contains(e.target) && e.target !== state.menu.opener &&
+      !(state.menu.opener && state.menu.opener.contains(e.target))) closeMenu();
+}, true);
+window.addEventListener("blur", () => closeMenu());
 
 // Go calls these. __snapshot carries a whole frame; a frame that arrives out
 // of order is dropped rather than rendered, since a stale one would move the
@@ -1080,11 +1673,40 @@ window.__snapshot = (json) => {
   // nothing for a keystroke should not cost you your place.
   const cur = selected();
   if (cur) state.cursor = { pid: cur.pid, sessionId: cur.sessionId };
+  // A row menu acts on the selected agent. If that agent left with this
+  // frame, the selection has moved on and the menu would act on another
+  // one - Stop included - so it closes rather than quietly retargeting.
+  if (state.menu && state.menu.targetKey && (!cur || key(cur) !== state.menu.targetKey)) closeMenu();
   render();
+  renderPeekState();
+};
+window.__peek = (json) => {
+  const v = JSON.parse(json);
+  if (state.peek && key(v) === key(state.peek)) renderPeek(v);
+};
+// A reply that went clears the input; one that failed keeps it, so the
+// text can be sent again once whatever stopped it is fixed. The id ties the
+// answer to the send that asked, whatever the panel has done since.
+window.__replied = (id, ok) => {
+  let agentKey = null;
+  let sent = null;
+  for (const [k, r] of state.replies) {
+    if (r.id === id) { agentKey = k; sent = r; }
+  }
+  if (!sent) return;
+  state.replies.delete(agentKey);
+  if (!state.peek || key(state.peek) !== agentKey) return;
+  const input = $("peekinput");
+  if (ok && input.value.trim() === sent.text) input.value = "";
+  if (!ok && !input.value) input.value = sent.text;
+  if (ok) requestPeek();
+  renderPeekState();
+  if (!input.disabled) input.focus();
 };
 window.__notice = (text, alert) => notice(text, alert);
 
 window.addEventListener("resize", () => {
+  closeMenu();
   // A different width can mean a different readout shape, and the
   // stylesheet's estimate for it with it.
   reportCapacity();

@@ -17,12 +17,95 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
+
+      # Signing, notarizing and the tap each switch on when their secrets
+      # exist, so a release works today with none of them.
+      - name: Check optional secrets
+        id: has
+        env:
+          CERT: ${{ secrets.APPLE_CERTIFICATE_P12 }}
+          NOTARY: ${{ secrets.APPLE_APP_PASSWORD }}
+          TAP: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
+        run: |
+          {
+            echo "signing=$([ -n "$CERT" ] && echo true || echo false)"
+            echo "notary=$([ -n "$CERT" ] && [ -n "$NOTARY" ] && echo true || echo false)"
+            echo "tap=$([ -n "$TAP" ] && echo true || echo false)"
+          } >> "$GITHUB_OUTPUT"
+          echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
+
+      - name: Import Developer ID certificate
+        if: steps.has.outputs.signing == 'true'
+        env:
+          CERT: ${{ secrets.APPLE_CERTIFICATE_P12 }}
+          CERT_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          KEYCHAIN="$RUNNER_TEMP/signing.keychain-db"
+          KEYCHAIN_PASSWORD=$(openssl rand -hex 16)
+          echo "$CERT" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security import "$RUNNER_TEMP/cert.p12" -k "$KEYCHAIN" \
+            -P "$CERT_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: \
+            -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          # Prepend the new keychain to the search list so codesign finds it.
+          # shellcheck disable=SC2046 # one keychain path per word
+          security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | tr -d '"')
+          rm "$RUNNER_TEMP/cert.p12"
+          IDENTITY=$(security find-identity -v -p codesigning "$KEYCHAIN" \
+            | awk -F'"' '/Developer ID Application/ { print $2; exit }')
+          test -n "$IDENTITY"
+          echo "SIGN_IDENTITY=$IDENTITY" >> "$GITHUB_ENV"
+
+      - name: Build Switchboard.app
+        run: |
+          ARCHS="arm64 amd64" scripts/make-app.sh build
+          ditto -c -k --keepParent build/Switchboard.app "build/Switchboard-$VERSION.zip"
+
+      - name: Notarize Switchboard.app
+        if: steps.has.outputs.notary == 'true'
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+        run: |
+          xcrun notarytool submit "build/Switchboard-$VERSION.zip" \
+            --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" \
+            --password "$APPLE_APP_PASSWORD" --wait
+          xcrun stapler staple build/Switchboard.app
+          # Re-zip so the download carries the stapled ticket.
+          rm "build/Switchboard-$VERSION.zip"
+          ditto -c -k --keepParent build/Switchboard.app "build/Switchboard-$VERSION.zip"
+
       - uses: goreleaser/goreleaser-action@v6
         with:
           distribution: goreleaser
           version: "~> v2"
-          # Drop --skip=homebrew once a homebrew-tap repository and a
-          # HOMEBREW_TAP_GITHUB_TOKEN secret exist.
-          args: release --clean --skip=homebrew
+          args: release --clean ${{ steps.has.outputs.tap != 'true' && '--skip=homebrew' || '' }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HOMEBREW_TAP_GITHUB_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
+
+      - name: Publish the cask
+        if: steps.has.outputs.tap == 'true'
+        env:
+          TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
+          NOTARIZED: ${{ steps.has.outputs.notary == 'true' && 'notarized' || '' }}
+        run: |
+          git clone "https://x-access-token:$TAP_TOKEN@github.com/adamsilverstein/homebrew-tap.git" "$RUNNER_TEMP/tap"
+          mkdir -p "$RUNNER_TEMP/tap/Casks"
+          scripts/write-cask.sh "$VERSION" "build/Switchboard-$VERSION.zip" ${NOTARIZED:+"$NOTARIZED"} \
+            > "$RUNNER_TEMP/tap/Casks/switchboard.rb"
+          cd "$RUNNER_TEMP/tap"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Casks/switchboard.rb
+          git diff --cached --quiet && exit 0
+          git commit -m "Switchboard.app $VERSION"
+          git push
+
+      - name: Remove the signing keychain
+        if: always() && steps.has.outputs.signing == 'true'
+        run: security delete-keychain "$RUNNER_TEMP/signing.keychain-db" || true

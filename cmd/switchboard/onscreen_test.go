@@ -21,6 +21,8 @@ type tmuxRunner struct {
 	ps          string
 	psErr       error
 	psCalls     int
+	tree        string // ps -axo pid=,ppid=,comm=
+	treeCalls   int
 	iterm       string
 	itermCalls  int
 	itermAnswer bool
@@ -32,6 +34,10 @@ func (r *tmuxRunner) Run(name string, args ...string) (string, error) {
 		r.calls++
 		return r.clients, r.err
 	case "ps":
+		if strings.Contains(strings.Join(args, " "), "ppid") {
+			r.treeCalls++
+			return r.tree, nil
+		}
 		r.psCalls++
 		return r.ps, r.psErr
 	case "osascript":
@@ -123,8 +129,16 @@ func orphanFixtures() ([]registry.Agent, map[int]string) {
 	return agents, map[int]string{100: "/dev/ttys001", 700: "/dev/ttys006"}
 }
 
+// orphanTree puts pid 700 under iTerm's session server, the way an orphan
+// still hangs from it after its window is gone.
+const orphanTree = "  1310     1 /Applications/iTerm.app/Contents/MacOS/iTerm2\n" +
+	"  1969  1310 /Users/me/Library/Application Support/iTerm2/iTermServer-3.7.7\n" +
+	"  690  1969 /usr/bin/login\n" +
+	"  699   690 -zsh\n" +
+	"  700   699 claude\n"
+
 func TestOnScreenDropsAgentWhoseWindowIsGone(t *testing.T) {
-	r := &tmuxRunner{itermAnswer: true, iterm: itermWindows("/dev/ttys001")}
+	r := &tmuxRunner{itermAnswer: true, iterm: itermWindows("/dev/ttys001"), tree: orphanTree}
 	agents, ttys := orphanFixtures()
 	if got := names(filter(r, agents, ttys)); got != "windowed" {
 		t.Errorf("kept %q; want only the agent with a window", got)
@@ -179,5 +193,36 @@ func TestOnScreenSkipsITermQueryWhenEveryAgentIsWindowed(t *testing.T) {
 	}
 	if r.itermCalls != 1 {
 		t.Errorf("enumerated %d times; want 1", r.itermCalls)
+	}
+	if r.treeCalls != 0 {
+		t.Errorf("read the process tree %d times; want 0 when nothing missed", r.treeCalls)
+	}
+}
+
+// An agent in another terminal misses the iTerm enumeration too, but it is
+// not an orphan: it stays listed, and Focus either reaches it or says why.
+func TestOnScreenKeepsAgentInAnotherTerminal(t *testing.T) {
+	for _, app := range []string{
+		"/System/Applications/Utilities/Terminal.app/Contents/MacOS/Terminal",
+		"/Applications/Ghostty.app/Contents/MacOS/ghostty",
+		"/Applications/WezTerm.app/Contents/MacOS/wezterm-gui",
+	} {
+		tree := "  500     1 " + app + "\n" +
+			"  690   500 /usr/bin/login\n" +
+			"  699   690 -zsh\n" +
+			"  700   699 claude\n"
+		r := &tmuxRunner{itermAnswer: true, iterm: itermWindows("/dev/ttys001"), tree: tree}
+		agents, ttys := orphanFixtures()
+		if got := names(filter(r, agents, ttys)); got != "windowed,orphaned" {
+			t.Errorf("%s: kept %q; want both", app, got)
+		}
+	}
+}
+
+func TestOnScreenKeepsAgentWhenProcessTreeIsUnknown(t *testing.T) {
+	r := &tmuxRunner{itermAnswer: true, iterm: itermWindows("/dev/ttys001")}
+	agents, ttys := orphanFixtures()
+	if got := names(filter(r, agents, ttys)); got != "windowed,orphaned" {
+		t.Errorf("kept %q; want both when the host cannot be told", got)
 	}
 }

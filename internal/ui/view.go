@@ -31,6 +31,9 @@ func (m Model) View() string {
 	if m.quitting {
 		return ""
 	}
+	if m.peek != nil {
+		return m.peekView()
+	}
 	var b strings.Builder
 
 	title := "switchboard"
@@ -88,7 +91,7 @@ func (m Model) View() string {
 		b.WriteString(deadStyle.Render("  no agents match") + "\n")
 	}
 
-	footer := "enter focus  / filter  s/a/n/d sort  ctrl+x stop  q quit"
+	footer := "enter focus  space peek  / filter  s/a/n/d sort  ctrl+x stop  q quit"
 	if m.notice != "" {
 		footer = m.notice
 	}

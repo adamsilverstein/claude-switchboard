@@ -69,9 +69,20 @@ func TestHandleAppliesEveryCommandThePageSends(t *testing.T) {
 		t.Errorf("columns = %+v, want {Status:120 Repo:200}", got)
 	}
 
+	if act := c.Handle(`{"cmd":"hide","col":"summary","on":true}`); !act.Repaint {
+		t.Error("hiding a column should repaint")
+	}
+	if got := c.Snapshot(now).Hidden; got != (Hidden{Summary: true}) {
+		t.Errorf("hidden = %+v, want {Summary:true}", got)
+	}
+
 	act := c.Handle(`{"cmd":"focus","pid":1,"sessionId":"s1"}`)
 	if act.Kind != "focus" || act.PID != 1 || act.SessionID != "s1" {
 		t.Errorf("focus = %+v, want {focus 1 s1}", act)
+	}
+	act = c.Handle(`{"cmd":"copy","pid":1,"sessionId":"s1"}`)
+	if act.Kind != "copy" || act.PID != 1 || act.SessionID != "s1" {
+		t.Errorf("copy = %+v, want {copy 1 s1}", act)
 	}
 	act = c.Handle(`{"cmd":"stop","pid":2,"sessionId":"s2"}`)
 	if act.Kind != "stop" || act.PID != 2 || act.SessionID != "s2" {
@@ -80,6 +91,17 @@ func TestHandleAppliesEveryCommandThePageSends(t *testing.T) {
 	act = c.Handle(`{"cmd":"sweep","agents":[{"pid":1,"sessionId":"s1"},{"pid":3,"sessionId":"s3"}]}`)
 	if act.Kind != "sweep" || len(act.Targets) != 2 || act.Targets[1] != (Target{PID: 3, SessionID: "s3"}) {
 		t.Errorf("sweep = %+v, want both targets", act)
+	}
+	act = c.Handle(`{"cmd":"peek","pid":1,"sessionId":"s1"}`)
+	if act.Kind != "peek" || act.PID != 1 || act.SessionID != "s1" {
+		t.Errorf("peek = %+v, want {peek 1 s1}", act)
+	}
+	act = c.Handle(`{"cmd":"reply","pid":1,"sessionId":"s1","text":"go with option 1","id":7}`)
+	if act.Kind != "reply" || act.PID != 1 || act.SessionID != "s1" || act.Text != "go with option 1" || act.ID != 7 {
+		t.Errorf("reply = %+v, want {reply 1 s1 \"go with option 1\"}", act)
+	}
+	if act := c.Handle(`{"cmd":"reply","pid":1,"sessionId":"s1","text":"   "}`); act.Kind != "" {
+		t.Errorf("an empty reply = %+v; want it dropped", act)
 	}
 	if act := c.Handle(`{"cmd":"quit"}`); act.Kind != "quit" {
 		t.Errorf("quit = %+v", act)
@@ -376,4 +398,42 @@ func structSource(t *testing.T, file, decl string) string {
 		t.Fatalf("%q in %s is never closed", decl, file)
 	}
 	return s[i : i+j]
+}
+
+// The columns you can hide are named twice: HIDEABLE in console.js builds
+// the menus, and Hidden in controller.go remembers the choice. A column in
+// one and not the other is a menu item that does nothing, or a preference
+// no menu can change. Each must also be a real [data-col], and neither list
+// may hold STATUS or NAME.
+func TestTheHideableColumnsAgree(t *testing.T) {
+	m := regexp.MustCompile(`(?s)const HIDEABLE = \[(.*?)\];`).
+		FindStringSubmatch(string(mustRead("assets/console.js")))
+	if m == nil {
+		t.Fatal("no HIDEABLE in console.js; the pattern needs updating")
+	}
+	var page []string
+	for _, q := range regexp.MustCompile(`\["(\w+)",`).FindAllStringSubmatch(m[1], -1) {
+		page = append(page, q[1])
+	}
+	var kept []string
+	for _, q := range regexp.MustCompile(`json:"(\w+),omitempty"`).
+		FindAllStringSubmatch(structSource(t, "controller.go", "type Hidden struct"), -1) {
+		kept = append(kept, q[1])
+	}
+	if got, want := strings.Join(page, ","), strings.Join(kept, ","); got != want {
+		t.Errorf("console.js can hide\n\t%s\nbut Hidden remembers\n\t%s", got, want)
+	}
+	html := string(mustRead("assets/console.html"))
+	css := string(mustRead("assets/console.css"))
+	for _, col := range page {
+		if col == "status" || col == "name" {
+			t.Errorf("%s can be hidden; the table cannot do without it", col)
+		}
+		if !strings.Contains(html, `data-col="`+col+`"`) {
+			t.Errorf("%s can be hidden but is not a column in console.html", col)
+		}
+		if !strings.Contains(css, ".hide-"+col+" ") {
+			t.Errorf("%s can be hidden but console.css has no .hide-%s rule", col, col)
+		}
+	}
 }

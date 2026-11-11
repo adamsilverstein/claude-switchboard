@@ -7,6 +7,7 @@ import (
 
 	"github.com/adamsilverstein/claude-switchboard/internal/activity"
 	"github.com/adamsilverstein/claude-switchboard/internal/appui"
+	"github.com/adamsilverstein/claude-switchboard/internal/registry"
 	"github.com/adamsilverstein/claude-switchboard/internal/target"
 	"github.com/adamsilverstein/claude-switchboard/internal/ui"
 )
@@ -43,7 +44,9 @@ func runUI() error {
 		return rows, nil
 	}
 
-	_, err = tea.NewProgram(ui.New(source, focusAgent, stopAgent), tea.WithAltScreen()).Run()
+	peek := func(a registry.Agent) (activity.Exchange, error) { return peekAgent(projectsDir, a) }
+	model := ui.New(source, focusAgent, stopAgent).WithPeek(peek, replyAgent)
+	_, err = tea.NewProgram(model, tea.WithAltScreen()).Run()
 	if err != nil {
 		return fmt.Errorf("ui: %w", err)
 	}

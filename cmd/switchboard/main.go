@@ -27,6 +27,8 @@ func run(args []string) error {
 		return runWhere(args[1:])
 	case "focus":
 		return runFocus(args[1:])
+	case "reply":
+		return runReply(args[1:])
 	case "statusline":
 		return runStatusline(args[1:])
 	case "help", "-h", "--help":
@@ -48,6 +50,7 @@ Commands:
   list [--all] [--summary]   print the live agents as a table
   where <agent>              print the window an agent is running in
   focus <agent> [--dry-run]  jump focus to an agent's window
+  reply <agent> <text>       type a one-line reply into an idle agent
   statusline --install       chain the statusLine shim into settings.json
   statusline --uninstall     unchain it again
   statusline -- <command>    Claude Code statusLine shim; see README

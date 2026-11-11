@@ -30,6 +30,16 @@ type Payload struct {
 	TranscriptPath string `json:"transcript_path"`
 	Cwd            string `json:"cwd"`
 
+	Workspace struct {
+		ProjectDir string `json:"project_dir"`
+
+		// Repo is the repository Claude Code resolved, which names the
+		// repository a worktree belongs to rather than the worktree.
+		Repo *struct {
+			Name string `json:"name"`
+		} `json:"repo"`
+	} `json:"workspace"`
+
 	Model struct {
 		ID          string `json:"id"`
 		DisplayName string `json:"display_name"`
@@ -168,7 +178,15 @@ func DefaultDir() (string, error) {
 
 // Store writes raw as the payload for its session. The write is atomic, so a
 // reader polling once a second never sees a half-written file.
+//
+// When the session's totals have moved since the payload it replaces, the
+// change is also appended to the ledger. A ledger failure is not a store
+// failure: the per-session file is what every other surface reads.
 func Store(dir string, raw []byte) error {
+	return store(dir, raw, time.Now())
+}
+
+func store(dir string, raw []byte, now time.Time) error {
 	var p Payload
 	if err := json.Unmarshal(raw, &p); err != nil {
 		return err
@@ -180,6 +198,11 @@ func Store(dir string, raw []byte) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
+	var prev *Payload
+	if old, ok := Read(dir, session); ok {
+		prev = &old
+	}
+	_ = appendLedger(dir, prev, p, now)
 	tmp, err := os.CreateTemp(dir, ".tmp-*")
 	if err != nil {
 		return err

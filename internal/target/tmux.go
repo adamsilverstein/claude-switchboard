@@ -2,6 +2,7 @@ package target
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 )
 
@@ -32,19 +33,26 @@ func ParseTmuxRef(field string) (TmuxRef, bool) {
 	}, true
 }
 
-// clientTTY returns the tty of the first client attached to a tmux session,
-// or "" when the session is detached.
-func clientTTY(r Runner, session string) string {
-	out, err := r.Run("tmux", "list-clients", "-t", session, "-F", "#{client_tty}")
+// clientTTY returns the tty and pid of the first client attached to a tmux
+// session, or "" when the session is detached. The pid is 0 when tmux does
+// not report one; it only narrows which terminal is asked about the tty.
+func clientTTY(r Runner, session string) (string, int) {
+	out, err := r.Run("tmux", "list-clients", "-t", session, "-F", "#{client_tty} #{client_pid}")
 	if err != nil {
-		return ""
+		return "", 0
 	}
 	for _, line := range strings.Split(out, "\n") {
-		if tty := strings.TrimSpace(line); tty != "" {
-			return tty
+		fields := strings.Fields(line)
+		if len(fields) == 0 {
+			continue
 		}
+		pid := 0
+		if len(fields) > 1 {
+			pid, _ = strconv.Atoi(fields[1])
+		}
+		return fields[0], pid
 	}
-	return ""
+	return "", 0
 }
 
 // AttachedTmuxSessions returns the names of tmux sessions with at least one
