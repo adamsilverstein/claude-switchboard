@@ -23,6 +23,7 @@ import (
 	"github.com/adamsilverstein/claude-switchboard/internal/appui"
 	"github.com/adamsilverstein/claude-switchboard/internal/forge"
 	"github.com/adamsilverstein/claude-switchboard/internal/registry"
+	"github.com/adamsilverstein/claude-switchboard/internal/statusline"
 	"github.com/adamsilverstein/claude-switchboard/internal/ui"
 )
 
@@ -251,7 +252,46 @@ func account(bare bool) appui.Account {
 		Usage5hResetsIn:    "3h 12m",
 		Usage7dResetsIn:    "4d 14h",
 		UsageSpendResetsIn: "4d 14h",
-	})
+	}.WithToday(ledger(), time.Now()))
+}
+
+// ledger fabricates a working day of spend for the Today panel.
+func ledger() []statusline.LedgerEntry {
+	now := time.Now()
+	day := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	type step struct {
+		hour           int
+		session, model string
+		repo           string
+		usd            float64
+	}
+	steps := []step{
+		{8, "a", "Opus 5.5", "gutenberg", 2.4}, {9, "a", "Opus 5.5", "gutenberg", 6.1},
+		{9, "b", "Sonnet 5.5", "wordpress-develop", 1.2}, {10, "c", "Opus 5.5", "gutenberg", 4.8},
+		{11, "b", "Sonnet 5.5", "wordpress-develop", 3.3}, {13, "d", "Opus 5.5", "claude-switchboard", 2.9},
+		{14, "a", "Opus 5.5", "gutenberg", 7.5}, {14, "e", "Haiku 5.5", "wordpress-develop", 0.42},
+		{15, "d", "Opus 5.5", "claude-switchboard", 3.45},
+	}
+	totals := map[string]statusline.Totals{}
+	var out []statusline.LedgerEntry
+	for _, s := range steps {
+		// Shifted so the day ends at the current hour, whatever time
+		// the preview is opened.
+		h := max(0, now.Hour()-15+s.hour)
+		from := totals[s.session]
+		to := statusline.Totals{
+			USD:          from.USD + s.usd,
+			APIMS:        from.APIMS + int64(s.usd*90_000),
+			LinesAdded:   from.LinesAdded + int(s.usd*60),
+			LinesRemoved: from.LinesRemoved + int(s.usd*15),
+		}
+		totals[s.session] = to
+		out = append(out, statusline.LedgerEntry{
+			At: day.Add(time.Duration(h) * time.Hour).Unix(), Session: s.session,
+			Model: s.model, Repo: s.repo, From: from, To: to,
+		})
+	}
+	return out
 }
 
 // cache is the prompt cache for one fixture row, cycling through the three

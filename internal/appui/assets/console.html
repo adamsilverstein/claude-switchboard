@@ -51,6 +51,28 @@
       </div>
     </div>
 
+    <!-- The day's spend, rolled up from the ledger the shim appends to, so
+         ended sessions still count. The meters above say how much of the
+         window is left; this says what used it. Dollars are what Claude
+         Code reports: on a subscription that is the API price of the work,
+         not a bill. Hidden until the ledger has something for today. -->
+    <div class="block" id="today" hidden>
+      <span class="label">Today</span>
+      <div class="ledger">
+        <div class="big"><b id="todayCost"></b><span id="todaySessions"></span></div>
+        <div class="spark" id="todayHours"></div>
+        <span class="note" id="todayNote"></span>
+        <div class="shares">
+          <span class="sublabel">By repository</span>
+          <div id="todayRepos"></div>
+        </div>
+        <div class="shares">
+          <span class="sublabel">By model</span>
+          <div id="todayModels"></div>
+        </div>
+      </div>
+    </div>
+
     <!-- The OpenAI account's windows, the two Codex's own /status draws.
          A separate panel, not two more meters in the one above: they are a
          different account's quota, and stacking them together would read

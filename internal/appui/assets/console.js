@@ -423,6 +423,8 @@ function renderSidebar(s) {
     meter("codex7d", acct.codex7dPct, resetNote(acct.codex7dResetsIn)),
   ].some(Boolean);
 
+  renderToday(acct.today);
+
   const age = s.polledAt ? Math.max(0, Math.round((Date.now() - Date.parse(s.polledAt)) / 1000)) : null;
   $("polled").textContent = age === null ? "" : "polled " + age + "s ago";
 }
@@ -461,6 +463,49 @@ function facets(blockId, listId, rows, keyOf, noteOf) {
     b.onclick = () => setFilter(active === k ? "" : k);
     list.append(b);
   }
+}
+
+// renderToday draws the day's spend from the ledger, or drops the panel
+// when nothing has been recorded today.
+function renderToday(t) {
+  $("today").hidden = !t;
+  if (!t) return;
+  $("todayCost").textContent = t.cost;
+  $("todaySessions").textContent = t.sessions + (t.sessions === 1 ? " session" : " sessions");
+  $("todayNote").textContent = [t.api ? t.api + " model time" : "", t.lines || ""].filter(Boolean).join(" · ");
+  $("todayNote").hidden = !t.api && !t.lines;
+
+  const hours = t.hours || [];
+  const peak = Math.max(0, ...hours);
+  const spark = $("todayHours");
+  spark.replaceChildren();
+  hours.forEach((usd, h) => {
+    const i = el("i", usd > 0 ? null : "none");
+    if (usd > 0 && peak > 0) i.style.height = Math.max(8, Math.round(usd / peak * 100)) + "%";
+    i.title = String(h).padStart(2, "0") + ":00  $" + usd.toFixed(2);
+    spark.append(i);
+  });
+  const busiest = hours.indexOf(peak);
+  spark.setAttribute("role", "img");
+  spark.setAttribute("aria-label", peak > 0
+    ? "Spend by hour; busiest " + String(busiest).padStart(2, "0") + ":00 at $" + peak.toFixed(2)
+    : "Spend by hour");
+
+  shares("todayRepos", t.repos);
+  shares("todayModels", t.models);
+}
+
+// shares lists one breakdown of the day's spend: name, sessions, cost.
+function shares(id, rows) {
+  const list = $(id);
+  list.replaceChildren();
+  for (const r of rows || []) {
+    const row = el("div", "share");
+    row.title = r.name + ": " + r.cost + " across " + r.sessions + (r.sessions === 1 ? " session" : " sessions");
+    row.append(el("b", null, r.name), el("i", null, String(r.sessions)), el("span", null, r.cost));
+    list.append(row);
+  }
+  list.parentElement.hidden = !rows || rows.length === 0;
 }
 
 // resetNote describes when a rate-limit window rolls over, when known.
