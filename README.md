@@ -50,6 +50,19 @@ joins each one to the operating-system window it is sitting in.
 The repository is `claude-switchboard`; the command it installs is
 `switchboard`.
 
+### With Homebrew
+
+```sh
+brew install adamsilverstein/tap/switchboard          # the CLI
+brew install --cask adamsilverstein/tap/switchboard   # Switchboard.app
+```
+
+The app is a universal binary for Apple Silicon and Intel. Until it is
+notarized, macOS blocks its first launch; the cask prints how to allow it.
+Each [release](https://github.com/adamsilverstein/claude-switchboard/releases)
+also carries the CLI tarballs and `Switchboard-<version>.zip` for a manual
+install.
+
 ### With `go install`
 
 Needs Go 1.27 or newer.
@@ -229,8 +242,14 @@ The first focus from the app triggers a one-time macOS Automation permission
 prompt for controlling iTerm, attributed to Switchboard rather than to your
 terminal. Closing the window quits the app.
 
-`switchboard app` needs a cgo build (the default on macOS); cross-compiled
-`CGO_ENABLED=0` release binaries print an explanatory error instead.
+`switchboard app` needs a cgo build. That is the default for a local build
+on macOS, and the macOS release binaries are built with cgo too; a
+`CGO_ENABLED=0` build prints an explanatory error instead.
+
+`scripts/make-app.sh` reads three optional environment variables, which the
+release workflow uses: `VERSION` for the bundle version, `ARCHS` (for
+example `"arm64 amd64"`) to merge several architectures into a universal
+binary, and `SIGN_IDENTITY` to sign with a Developer ID instead of ad hoc.
 
 The bundle carries its own icon - a patch panel whose three cords use the same
 colours the picker gives an agent: green for busy, yellow for idle, red for

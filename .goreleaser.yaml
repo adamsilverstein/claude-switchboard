@@ -3,15 +3,27 @@ version: 2
 project_name: switchboard
 
 builds:
-  - main: ./cmd/switchboard
+  # Darwin builds use cgo so a downloaded CLI can open `switchboard app`
+  # itself. The release job runs on macOS, and Go passes the matching -arch
+  # to clang, so both architectures build on the one runner.
+  - id: darwin
+    main: ./cmd/switchboard
+    binary: switchboard
+    env:
+      - CGO_ENABLED=1
+    goos:
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+  # Linux lists agents but has no focus backend or window yet, so it stays
+  # a static, cross-compiled build.
+  - id: linux
+    main: ./cmd/switchboard
     binary: switchboard
     env:
       - CGO_ENABLED=0
-    # The tool reads a local registry and drives iTerm2/tmux, so macOS is
-    # the platform that matters; a Linux build costs nothing and lists
-    # agents even though it has no focus backend there yet.
     goos:
-      - darwin
       - linux
     goarch:
       - amd64
@@ -32,11 +44,22 @@ changelog:
       - "^docs:"
       - "^test:"
 
+# The release workflow builds Switchboard.app before goreleaser runs (see
+# scripts/make-app.sh) and leaves the zip in build/, outside dist/, which
+# --clean wipes.
+release:
+  extra_files:
+    - glob: ./build/Switchboard-*.zip
+
 brews:
   - repository:
       owner: adamsilverstein
       name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
     homepage: https://github.com/adamsilverstein/claude-switchboard
     description: Keyboard-driven picker for live Claude Code agents
-    # Publishing needs a homebrew-tap repository and a HOMEBREW_TAP_GITHUB_TOKEN
-    # secret; until then goreleaser skips this section with --skip=homebrew.
+    test: |
+      assert_match "usage: switchboard", shell_output("#{bin}/switchboard --help 2>&1")
+    # The release workflow passes --skip=homebrew while the repository has no
+    # HOMEBREW_TAP_GITHUB_TOKEN secret. The app's cask is written by
+    # scripts/write-cask.sh, since goreleaser does not build the bundle.
