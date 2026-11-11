@@ -215,9 +215,17 @@ branch with no pull request of its own falls back to an issue number in the
 branch name (`1234-retry-on-429`, `issue-11`), and an agent sitting on a
 trunk shows nothing, because a trunk is not a piece of work.
 
+An open or draft pull request also carries one glyph for the most urgent
+thing about it: ✗ failing checks, ● changes requested, ⚠ merge conflicts,
+◌ checks still running, ✓ green, or ◐ a review still to come. The readout
+below the list, and the glyph's tooltip, spell out all of them - "2
+failing · review required" - so an idle agent on a red pull request no
+longer looks the same as one on a green one.
+
 Asking costs a `gh` call per repository, so the answers are cached for two
 minutes and fetched off the poll loop; nothing in the window ever waits on
-the network.
+the network. A pull request with checks still running is asked about again
+after thirty seconds instead, so a CI run is not two minutes stale.
 
 Density follows the window, not the agent count: the page measures how many
 rows it can show and switches to compact when they stop fitting. Compact and

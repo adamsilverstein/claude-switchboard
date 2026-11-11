@@ -528,9 +528,39 @@ body.resizing { cursor: col-resize; user-select: none; }
 .row .ref .s-draft { color: var(--muted); }
 .row .ref .s-merged { color: var(--accent-ink); }
 .row .ref .s-closed { color: var(--alert); }
-.row[data-live="false"] .ref .num, .row[data-live="false"] .ref .state { color: var(--dead); }
+
+/* One glyph for an open pull request's checks and review, the most urgent
+ * of them. It never stands alone: the tooltip and the readout say it in
+ * words, so the colour only repeats what the shape already means. */
+.row .ref .mark {
+  flex: none;
+  font-family: var(--mono);
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 600;
+}
+.mark.m-alert { color: var(--alert); }
+/* Green and red checks are the two states read most often, so they get
+ * the shapes people already know from GitHub: a white tick on a green
+ * box, and a bold red cross. */
+.mark.m-fail { color: var(--alert); font-size: 13px; font-weight: 800; line-height: 1; }
+.mark.m-pass {
+  display: inline-block;
+  padding: 0 3px;
+  line-height: 1.35;
+  background: var(--busy);
+  color: #fff;
+}
+.mark.m-wait { color: var(--idle); }
+.mark.m-ok { color: var(--busy); }
+.mark.m-quiet { color: var(--muted); }
+.row[data-live="false"] .ref .num, .row[data-live="false"] .ref .state,
+.row[data-live="false"] .ref .mark { color: var(--dead); }
 .row[aria-selected="true"] .ref .num { color: #fff; }
-.row[aria-selected="true"] .ref .state { color: var(--on-accent-dim); }
+.row[aria-selected="true"] .ref .state,
+.row[aria-selected="true"] .ref .mark { color: var(--on-accent-dim); }
+.row[aria-selected="true"] .ref .mark.m-pass { color: #fff; }
+.row[data-live="false"] .ref .mark.m-pass { color: #fff; background: var(--dead); }
 
 /* The readout repeats the number, so it gets the same affordance. */
 .cell .num {
@@ -544,6 +574,7 @@ body.resizing { cursor: col-resize; user-select: none; }
 }
 .cell .num:hover:not(:disabled) { text-decoration: underline; }
 .cell .num:disabled { color: var(--secondary); cursor: default; }
+.cell .marks { display: flex; flex-wrap: wrap; gap: 4px 12px; }
 
 .no-context { --col-context: 0px; }
 .no-ref { --col-ref: 0px; }
