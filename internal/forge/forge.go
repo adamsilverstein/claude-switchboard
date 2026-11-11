@@ -78,7 +78,7 @@ func (c Checks) State() string {
 	return ""
 }
 
-// Label is the checks in a phrase: "2 failing", "14 running", "checks".
+// Label is the checks in a phrase: "2 failing", "14 running", "checks passing".
 func (c Checks) Label() string {
 	switch c.State() {
 	case "fail":
@@ -86,7 +86,7 @@ func (c Checks) Label() string {
 	case "pending":
 		return strconv.Itoa(c.Pending) + " running"
 	case "pass":
-		return "checks"
+		return "checks passing"
 	}
 	return ""
 }

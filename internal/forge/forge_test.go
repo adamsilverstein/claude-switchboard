@@ -264,7 +264,7 @@ func TestChecksStateAndLabel(t *testing.T) {
 		state, label string
 	}{
 		{Checks{}, "", ""},
-		{Checks{Pass: 12}, "pass", "checks"},
+		{Checks{Pass: 12}, "pass", "checks passing"},
 		{Checks{Pass: 3, Pending: 14}, "pending", "14 running"},
 		{Checks{Pass: 3, Fail: 2, Pending: 14}, "fail", "2 failing"},
 	}
