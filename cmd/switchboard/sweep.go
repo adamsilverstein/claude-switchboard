@@ -4,11 +4,11 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"sync"
 	"syscall"
 	"time"
 
 	"github.com/adamsilverstein/claude-switchboard/internal/appui"
+	"github.com/adamsilverstein/claude-switchboard/internal/forge"
 	"github.com/adamsilverstein/claude-switchboard/internal/git"
 	"github.com/adamsilverstein/claude-switchboard/internal/locate"
 	"github.com/adamsilverstein/claude-switchboard/internal/registry"
@@ -34,9 +34,11 @@ type sweeper struct {
 	close     func(target.Location) error
 
 	// wait is how long to give the stopped agents to exit before their
-	// sessions are closed, and poll how often to look.
-	wait time.Duration
-	poll time.Duration
+	// sessions are closed, poll how often to look, and closeWait how long
+	// the report waits on closes still in flight after that.
+	wait      time.Duration
+	poll      time.Duration
+	closeWait time.Duration
 }
 
 // sweepTimeout is how long a SIGTERMed agent gets to exit on its own. Claude
@@ -56,12 +58,14 @@ func newSweeper(control *appui.Controller) sweeper {
 		close:     func(loc target.Location) error { return target.Close(target.ExecRunner{}, loc) },
 		wait:      sweepTimeout,
 		poll:      100 * time.Millisecond,
+		closeWait: sweepTimeout,
 	}
 }
 
-// recheckDone reads the agent's registry entry and branch afresh. The row
-// it was swept from can be up to a poll old, and an agent that took a prompt
-// or a checkout that moved to new work in that time is not done any more.
+// recheckDone reads the agent's registry entry, branch and pull request
+// afresh. The row it was swept from can be a poll old, and its pull request
+// two minutes old: an agent that took a prompt, a checkout that moved to new
+// work, or a pull request that reopened in that time is not done any more.
 func recheckDone(r ui.Row) error {
 	a, ok := registry.Reread(r.Agent)
 	if !ok {
@@ -76,6 +80,13 @@ func recheckDone(r ui.Row) error {
 	}
 	if b != r.Telemetry.Branch {
 		return errors.New("branch changed")
+	}
+	state, err := forge.PRState(forge.ExecRunner{}, r.Agent.Cwd, r.Telemetry.Ref.Number)
+	if err != nil {
+		return errors.New("could not check its pull request")
+	}
+	if state != "merged" && state != "closed" {
+		return errors.New("pull request is " + state)
 	}
 	return nil
 }
@@ -192,12 +203,20 @@ func (s sweeper) run(targets []appui.Target) sweepReport {
 	// One deadline for the lot, not one per agent: they were all
 	// signalled together and exit in parallel. A session is closed once
 	// its agent has exited and nothing but the shell is left on its
-	// terminal; the closes run side by side, so one that iTerm stalls on
-	// does not hold up the rest.
-	var mu sync.Mutex
+	// terminal. Each close runs on its own and reports back on a channel
+	// with room for every one of them, so a close that iTerm stalls on
+	// holds up neither the rest nor the report, and if it finishes after
+	// the report has gone it has nowhere left to write.
+	type result struct {
+		id  int
+		err error
+	}
+	results := make(chan result, len(pending))
+	inflight := map[int]string{}
+	nextID := 0
 	deadline := time.Now().Add(s.wait)
 	for len(pending) > 0 {
-		var still, ready []stopped
+		var still []stopped
 		for _, p := range pending {
 			if !s.gone(p.agent) {
 				p.why = "still running"
@@ -212,30 +231,36 @@ func (s sweeper) run(targets []appui.Target) sweepReport {
 				p.why = "other processes on its terminal"
 				still = append(still, p)
 			default:
-				ready = append(ready, p)
+				id := nextID
+				nextID++
+				inflight[id] = p.agent.Name
+				go func(id int, loc target.Location) { results <- result{id, s.close(loc)} }(id, p.loc)
 			}
 		}
-		var wg sync.WaitGroup
-		for _, p := range ready {
-			wg.Add(1)
-			go func(p stopped) {
-				defer wg.Done()
-				err := s.close(p.loc)
-				mu.Lock()
-				defer mu.Unlock()
-				if err != nil {
-					rep.failed = append(rep.failed, p.agent.Name+": "+err.Error())
-					return
-				}
-				rep.closed++
-			}(p)
-		}
-		wg.Wait()
 		pending = still
 		if len(pending) == 0 || !time.Now().Before(deadline) {
 			break
 		}
 		time.Sleep(s.poll)
+	}
+	timeout := time.After(s.closeWait)
+collect:
+	for len(inflight) > 0 {
+		select {
+		case r := <-results:
+			name := inflight[r.id]
+			delete(inflight, r.id)
+			if r.err != nil {
+				rep.failed = append(rep.failed, name+": "+r.err.Error())
+			} else {
+				rep.closed++
+			}
+		case <-timeout:
+			break collect
+		}
+	}
+	for _, name := range inflight {
+		rep.failed = append(rep.failed, name+": close did not finish")
 	}
 	for _, p := range pending {
 		rep.failed = append(rep.failed, p.agent.Name+": "+p.why+", session left open")

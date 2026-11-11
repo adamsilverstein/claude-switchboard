@@ -21,8 +21,9 @@ type fakeSweep struct {
 	stale   map[int]string // what a fresh look finds changed
 	stopped []int
 	closed  []int
-	exits   bool // whether stopped agents exit
-	busyTTY bool // whether something besides the shell stays on the terminal
+	exits   bool          // whether stopped agents exit
+	busyTTY bool          // whether something besides the shell stays on the terminal
+	hang    chan struct{} // when set, closes block until it is closed
 
 	mu sync.Mutex // closes run concurrently
 }
@@ -62,6 +63,10 @@ func (f *fakeSweep) sweeper() sweeper {
 		gone:  func(a registry.Agent) bool { return f.exits },
 		quiet: func(target.Location) (bool, error) { return !f.busyTTY, nil },
 		close: func(loc target.Location) error {
+			if f.hang != nil {
+				<-f.hang
+				return nil
+			}
 			f.mu.Lock()
 			defer f.mu.Unlock()
 			for pid, a := range f.agents {
@@ -71,8 +76,9 @@ func (f *fakeSweep) sweeper() sweeper {
 			}
 			return nil
 		},
-		wait: 20 * time.Millisecond,
-		poll: time.Millisecond,
+		wait:      20 * time.Millisecond,
+		poll:      time.Millisecond,
+		closeWait: 20 * time.Millisecond,
 	}
 }
 
@@ -182,6 +188,24 @@ func TestSweepSkipsAnAgentWithNoRecordedStart(t *testing.T) {
 	}
 	if !strings.Contains(rep.String(), "merged (no recorded process start)") {
 		t.Errorf("report %q does not say why it skipped", rep.String())
+	}
+}
+
+// A close that never returns, say an iTerm prompt nobody answers, must not
+// keep the sweep from reporting.
+func TestSweepReportsAStalledCloseAndReturns(t *testing.T) {
+	f := sweepFixture()
+	f.hang = make(chan struct{})
+	defer close(f.hang)
+	done := make(chan sweepReport)
+	go func() { done <- f.sweeper().run(targets(1)) }()
+	select {
+	case rep := <-done:
+		if !strings.Contains(rep.String(), "merged: close did not finish") {
+			t.Errorf("report %q does not name the stalled close", rep.String())
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("the sweep waited on a close that never returned")
 	}
 }
 
