@@ -78,12 +78,17 @@ func ttysOf(procs map[int]locate.Proc) map[int]string {
 // sessions, which have no controlling terminal; agents inside a detached
 // tmux session, whose panes exist but are on no one's screen; background
 // sessions with no "claude agents" viewer open, whose pty belongs to the
-// daemon; and agents whose tty no iTerm window owns, the orphans iTerm's
-// server keeps running after a restart failed to re-adopt them. All are real
+// daemon; and agents that run under iTerm but whose tty no iTerm window
+// owns, the orphans iTerm's server keeps running after a restart failed to
+// re-adopt them. All are real
 // processes the picker cannot take you to, so a row for any of them offers a
 // destination that does not exist. The tmux, process table, and iTerm
 // queries are skipped unless some agent needs them, and a failed query means
 // "unknown", which keeps the agent listed rather than hiding it.
+//
+// An agent in any other terminal stays listed. Terminal.app and Ghostty can
+// be focused; one in a terminal switchboard does not support is still
+// shown, and says why when picked, rather than vanishing.
 //
 // ttys is what ps reported for each agent's pid, keyed by pid; an agent
 // missing from it has no tty to check and is kept.
@@ -95,6 +100,19 @@ func onScreen(r target.Runner, windows *target.WindowIndex, agents []registry.Ag
 	viewers, viewersErr := []string(nil), error(nil)
 	if anyBackground(agents) {
 		viewers, viewersErr = target.AgentViewers(r)
+	}
+	var tree *target.ProcTree
+	treeLoaded := false
+	underIterm := func(pid int) bool {
+		if !treeLoaded {
+			treeLoaded = true
+			tree, _ = target.LoadProcTree(r)
+		}
+		if tree == nil {
+			return false
+		}
+		host, _ := tree.Host(pid)
+		return host == target.HostIterm
 	}
 	kept := make([]registry.Agent, 0, len(agents))
 	for _, a := range agents {
@@ -114,7 +132,7 @@ func onScreen(r target.Runner, windows *target.WindowIndex, agents []registry.Ag
 		// an iTerm window and both have already been judged above.
 		if a.Tmux == "" && !a.Background() {
 			if tty := ttys[a.PID]; tty != "" {
-				if has, known := windows.Windowed(tty); known && !has {
+				if has, known := windows.Windowed(tty); known && !has && underIterm(a.PID) {
 					continue
 				}
 			}
