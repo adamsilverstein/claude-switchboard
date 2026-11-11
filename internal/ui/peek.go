@@ -7,6 +7,7 @@ import (
 	"unicode/utf8"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/mattn/go-runewidth"
 
 	"github.com/adamsilverstein/claude-switchboard/internal/activity"
 	"github.com/adamsilverstein/claude-switchboard/internal/registry"
@@ -57,6 +58,11 @@ type peek struct {
 	input   string
 	scroll  int // lines scrolled up from the bottom
 	sending bool
+
+	// sent identifies the reply in flight. A completion carries it back,
+	// and one that does not match - from a panel since closed and
+	// reopened on the same agent - may not touch this panel's draft.
+	sent int
 }
 
 type peekMsg struct {
@@ -67,10 +73,9 @@ type peekMsg struct {
 }
 
 type replyMsg struct {
-	pid     int
-	session string
-	name    string
-	err     error
+	seq  int
+	name string
+	err  error
 }
 
 // WithPeek turns on the peek panel and, when replier is non-nil, replying
@@ -132,13 +137,16 @@ func (m Model) handlePeekKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.notice = why
 			return m, nil
 		}
-		p.sending = true
-		agent, text, name, r := p.agent, p.input, p.name, m.replier
+		m.replySeq++
+		p.sending, p.sent = true, m.replySeq
+		agent, text, name, r, seq := p.agent, p.input, p.name, m.replier, m.replySeq
 		return m, func() tea.Msg {
-			return replyMsg{pid: agent.PID, session: agent.SessionID, name: name, err: r(agent, text)}
+			return replyMsg{seq: seq, name: name, err: r(agent, text)}
 		}
 	case tea.KeyBackspace:
-		if p.input != "" {
+		// The text being sent stays as it was until the send says
+		// whether it went: kept to retry, or cleared.
+		if p.input != "" && !p.sending {
 			_, size := utf8.DecodeLastRuneInString(p.input)
 			p.input = p.input[:len(p.input)-size]
 		}
@@ -151,13 +159,15 @@ func (m Model) handlePeekKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case tea.KeyPgDown:
 		p.scroll -= m.peekBodyHeight() - 1
 	case tea.KeySpace:
-		p.input += " "
+		if !p.sending {
+			p.input += " "
+		}
 	case tea.KeyRunes:
-		p.input += string(msg.Runes)
+		if !p.sending {
+			p.input += string(msg.Runes)
+		}
 	}
-	if p.scroll < 0 {
-		p.scroll = 0
-	}
+	p.scroll = min(max(p.scroll, 0), max(len(m.peekBody())-m.peekBodyHeight(), 0))
 	return m, nil
 }
 
@@ -173,7 +183,7 @@ func (m Model) updatePeek(msg tea.Msg) (Model, tea.Cmd, bool) {
 		}
 		return m, nil, true
 	case replyMsg:
-		if !m.peek.is(msg.pid, msg.session) {
+		if m.peek == nil || m.peek.sent != msg.seq {
 			if msg.err != nil {
 				m.notice = "reply failed: " + msg.err.Error()
 			}
@@ -248,11 +258,11 @@ func (m Model) peekView() string {
 
 	switch why := m.replyBlocked(); {
 	case p.sending:
-		b.WriteString(footerStyle.Render("> "+p.input+"  sending…") + "\n")
+		b.WriteString(footerStyle.Render("> "+fitTail(printable(p.input), m.width-len("> ")-len("  sending…"))+"  sending…") + "\n")
 	case why != "":
 		b.WriteString(deadStyle.Render("  "+why) + "\n")
 	default:
-		b.WriteString(noticeStyle.Render("> ") + p.input + "▌\n")
+		b.WriteString(noticeStyle.Render("> ") + fitTail(printable(p.input), m.width-len("> ")-1) + "▌\n")
 	}
 	footer := "enter send  ↑↓ pgup/pgdn scroll  esc close"
 	if m.notice != "" {
@@ -324,8 +334,29 @@ func printable(s string) string {
 	}, s)
 }
 
-// Wrap breaks text into lines of at most w runes, keeping its own line
-// breaks and splitting on spaces where it can.
+// fitTail keeps the end of s that fits in w terminal cells, so the input
+// stays on one row and the caret end of a long reply stays in view.
+func fitTail(s string, w int) string {
+	if w < 1 {
+		w = 1
+	}
+	if runewidth.StringWidth(s) <= w {
+		return s
+	}
+	r := []rune(s)
+	cells := 1 // the leading ellipsis
+	i := len(r)
+	for i > 0 && cells+runewidth.RuneWidth(r[i-1]) <= w {
+		i--
+		cells += runewidth.RuneWidth(r[i])
+	}
+	return "…" + string(r[i:])
+}
+
+// Wrap breaks text into lines of at most w terminal cells, keeping its own
+// line breaks and splitting on spaces where it can. Cells rather than runes,
+// because a wide character takes two, and a line that overflows the
+// terminal wraps onto a row the scrolling does not know about.
 func Wrap(text string, w int) []string {
 	var out []string
 	for _, para := range strings.Split(text, "\n") {
@@ -335,10 +366,18 @@ func Wrap(text string, w int) []string {
 			continue
 		}
 		r := []rune(para)
-		for len(r) > w {
-			cut := w
-			for i := w; i > w/2; i-- {
-				if r[i] == ' ' {
+		for runewidth.StringWidth(string(r)) > w {
+			// fit is how many runes fill w cells; at least one, so a
+			// character wider than the line still makes progress.
+			fit, cells := 0, 0
+			for fit < len(r) && cells+runewidth.RuneWidth(r[fit]) <= w {
+				cells += runewidth.RuneWidth(r[fit])
+				fit++
+			}
+			fit = max(fit, 1)
+			cut := fit
+			for i := fit; i > fit/2; i-- {
+				if i < len(r) && r[i] == ' ' {
 					cut = i
 					break
 				}

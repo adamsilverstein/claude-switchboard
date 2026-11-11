@@ -211,6 +211,7 @@ type Model struct {
 	cursor   int             // index into visible()
 	stopping *registry.Agent // agent awaiting stop confirmation
 	peek     *peek           // open peek panel, or nil
+	replySeq int             // numbers each reply sent from a panel
 	flash    int             // remaining flash frames on the focused row
 	width    int
 	height   int

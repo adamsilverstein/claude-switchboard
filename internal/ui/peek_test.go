@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/mattn/go-runewidth"
 
 	"github.com/adamsilverstein/claude-switchboard/internal/activity"
 	"github.com/adamsilverstein/claude-switchboard/internal/registry"
@@ -186,5 +187,60 @@ func TestPeekStripsTerminalEscapes(t *testing.T) {
 	}
 	if !strings.Contains(view, "clear") || !strings.Contains(view, "csi") {
 		t.Error("the readable text should survive")
+	}
+}
+
+// A reply sent from a panel that was then closed and reopened must not clear
+// the new panel's draft when it completes.
+func TestStaleReplyCompletionLeavesTheNewDraftAlone(t *testing.T) {
+	m, _ := peeking(t, nil)
+	m, _ = space(t, m)
+	m = typeText(t, m, "first")
+	m, cmd := press(t, m, "enter")
+	if !m.peek.sending {
+		t.Fatal("enter should start a send")
+	}
+	m = typeText(t, m, "x")
+	if m.peek.input != "first" {
+		t.Errorf("input = %q; typing while sending should not change the draft", m.peek.input)
+	}
+	m, _ = press(t, m, "esc")
+	m, _ = space(t, m)
+	m = typeText(t, m, "second")
+	m = applyAll(t, m, cmd) // the first send completes now
+	if m.peek.input != "second" {
+		t.Errorf("input = %q; an old completion cleared the new draft", m.peek.input)
+	}
+}
+
+func TestPeekScrollStopsAtTheTop(t *testing.T) {
+	m, _ := peeking(t, nil)
+	m.height = 6
+	m, cmd := space(t, m)
+	m = applyAll(t, m, cmd)
+	for range 50 {
+		m, _ = press(t, m, "up")
+	}
+	top := max(len(m.peekBody())-m.peekBodyHeight(), 0)
+	if m.peek.scroll != top {
+		t.Errorf("scroll = %d after 50 ups, want it held at %d", m.peek.scroll, top)
+	}
+}
+
+func TestWrapCountsWideCharactersAsTwoCells(t *testing.T) {
+	for _, l := range Wrap("日本語のテキストをここに書きます", 10) {
+		if w := runewidth.StringWidth(l); w > 10 {
+			t.Errorf("line %q is %d cells, over 10", l, w)
+		}
+	}
+}
+
+func TestFitTailKeepsTheEnd(t *testing.T) {
+	got := fitTail("the start of a long reply and its end", 12)
+	if runewidth.StringWidth(got) > 12 || !strings.HasSuffix(got, "its end") || !strings.HasPrefix(got, "…") {
+		t.Errorf("fitTail = %q", got)
+	}
+	if got := fitTail("short", 12); got != "short" {
+		t.Errorf("fitTail(short) = %q", got)
 	}
 }
