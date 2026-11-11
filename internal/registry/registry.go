@@ -8,6 +8,7 @@ package registry
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -101,44 +102,54 @@ func Scan(dir string) ([]Agent, error) {
 		if e.IsDir() || !strings.HasSuffix(e.Name(), ".json") {
 			continue
 		}
-		path := filepath.Join(dir, e.Name())
-		data, err := os.ReadFile(path)
+		a, err := Load(filepath.Join(dir, e.Name()))
 		if err != nil {
 			continue
 		}
-		var raw rawAgent
-		if err := json.Unmarshal(data, &raw); err != nil {
-			continue
-		}
-		if raw.PID == 0 {
-			continue
-		}
-		a := Agent{
-			PID:                 raw.PID,
-			SessionID:           raw.SessionID,
-			Name:                raw.Name,
-			NameSource:          raw.NameSource,
-			Status:              raw.Status,
-			Cwd:                 raw.Cwd,
-			Entrypoint:          raw.Entrypoint,
-			Kind:                raw.Kind,
-			Tmux:                raw.Tmux,
-			MessagingSocketPath: raw.MessagingSocketPath,
-			Version:             raw.Version,
-			File:                path,
-		}
-		if raw.ProcStart != "" {
-			if t, err := time.ParseInLocation(procStartLayout, raw.ProcStart, time.UTC); err == nil {
-				a.ProcStart = t
-			}
-		}
-		a.StartedAt = fromMillis(raw.StartedAt)
-		a.StatusUpdatedAt = fromMillis(raw.StatusUpdatedAt)
-		a.UpdatedAt = fromMillis(raw.UpdatedAt)
 		agents = append(agents, a)
 	}
 	sort.Slice(agents, func(i, j int) bool { return agents[i].PID < agents[j].PID })
 	return agents, nil
+}
+
+// Load reads one registry file. It is for a decision that cannot rely on the
+// last scan, such as whether an agent is still idle right before it is
+// stopped.
+func Load(path string) (Agent, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return Agent{}, err
+	}
+	var raw rawAgent
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return Agent{}, err
+	}
+	if raw.PID == 0 {
+		return Agent{}, fmt.Errorf("%s: no pid", path)
+	}
+	a := Agent{
+		PID:                 raw.PID,
+		SessionID:           raw.SessionID,
+		Name:                raw.Name,
+		NameSource:          raw.NameSource,
+		Status:              raw.Status,
+		Cwd:                 raw.Cwd,
+		Entrypoint:          raw.Entrypoint,
+		Kind:                raw.Kind,
+		Tmux:                raw.Tmux,
+		MessagingSocketPath: raw.MessagingSocketPath,
+		Version:             raw.Version,
+		File:                path,
+	}
+	if raw.ProcStart != "" {
+		if t, err := time.ParseInLocation(procStartLayout, raw.ProcStart, time.UTC); err == nil {
+			a.ProcStart = t
+		}
+	}
+	a.StartedAt = fromMillis(raw.StartedAt)
+	a.StatusUpdatedAt = fromMillis(raw.StatusUpdatedAt)
+	a.UpdatedAt = fromMillis(raw.UpdatedAt)
+	return a, nil
 }
 
 func fromMillis(ms int64) time.Time {

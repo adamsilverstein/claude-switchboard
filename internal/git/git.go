@@ -142,10 +142,8 @@ func (c *Cache) resolve(cwd string) Info {
 	// which is the wrong answer the moment somebody checks out another
 	// one - and it is the branch that decides which pull request the
 	// column shows. A detached HEAD prints "HEAD", which names nothing.
-	if out, err := c.run.Run("git", "-C", cwd, "rev-parse", "--abbrev-ref", "HEAD"); err == nil {
-		if b := strings.TrimSpace(out); b != "HEAD" {
-			info.Branch = b
-		}
+	if b, err := Branch(c.run, cwd); err == nil {
+		info.Branch = b
 	}
 
 	dirty, err := Dirty(c.run, cwd)
@@ -154,6 +152,20 @@ func (c *Cache) resolve(cwd string) Info {
 	}
 	info.Dirty = dirty
 	return info
+}
+
+// Branch asks git directly which branch cwd has checked out, bypassing the
+// cache. A detached HEAD prints "HEAD", which names nothing, so it reads as
+// "".
+func Branch(r Runner, cwd string) (string, error) {
+	out, err := r.Run("git", "-C", cwd, "rev-parse", "--abbrev-ref", "HEAD")
+	if err != nil {
+		return "", err
+	}
+	if b := strings.TrimSpace(out); b != "HEAD" {
+		return b, nil
+	}
+	return "", nil
 }
 
 // Dirty asks git directly whether cwd has uncommitted changes, bypassing the
